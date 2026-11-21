@@ -1,0 +1,84 @@
+# Home Manager for the main user (my.user.name): the integration on the
+# NixOS side, and the user's desktop profile (homeManager.workstation), which
+# collects the homeManager aspects. A host adds its own Home Manager settings
+# with home-manager.users.<name> in its NixOS config.
+{ config, inputs, ... }:
+let
+  inherit (config.flake.modules) homeManager;
+in
+{
+  flake.modules.nixos.home-manager =
+    { config, ... }:
+    {
+      imports = [ inputs.home-manager.nixosModules.home-manager ];
+      # Home Manager uses the modern profile CLI during system activation.
+      systemd.services."home-manager-${config.my.user.name}".environment.NIX_CONFIG =
+        "experimental-features = nix-command flakes";
+      # Claude Code (CLI, Desktop, T3 agents) refuses fish, the login shell.
+      # Set for every session through PAM, desktop apps included. Codex falls
+      # back to bash on its own.
+      environment.sessionVariables.CLAUDE_CODE_SHELL = "/run/current-system/sw/bin/bash";
+      home-manager.useGlobalPkgs = true;
+      home-manager.useUserPackages = true;
+      home-manager.backupFileExtension = "backup";
+      home-manager.users.${config.my.user.name} = homeManager.workstation;
+    };
+
+  flake.modules.homeManager.workstation =
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      sessionEditor = pkgs.writeShellScriptBin "session-editor" ''
+        if [ -n "''${WAYLAND_DISPLAY:-}" ] \
+          && [ -n "''${XDG_RUNTIME_DIR:-}" ] \
+          && [ -S "''${XDG_RUNTIME_DIR}/''${WAYLAND_DISPLAY}" ]; then
+          exec ${pkgs.zed-editor}/bin/zeditor --wait "$@"
+        fi
+        if [ -n "''${DISPLAY:-}" ]; then
+          exec ${pkgs.zed-editor}/bin/zeditor --wait "$@"
+        fi
+        exec ${pkgs.neovim}/bin/nvim "$@"
+      '';
+    in
+    {
+      # Split by topic and feature so parallel changes rarely touch one file.
+      imports = with homeManager; [
+        umbriel
+        hyprland
+        shell
+        desktop
+        darkly
+        apps
+        nvim
+        ghostty
+        noctalia
+        vicinae
+        xremap
+        spotify
+        steam-theme
+        zen
+        theme-opacity
+        erebor-modes
+        kmscon
+      ];
+      home.stateVersion = "26.05";
+      home.pointerCursor = {
+        enable = true;
+        package = pkgs.capitaine-cursors;
+        name = "capitaine-cursors";
+        size = 32;
+        gtk.enable = true;
+        x11.enable = true;
+      };
+      home.sessionVariables = {
+        EDITOR = "${sessionEditor}/bin/session-editor";
+        VISUAL = "${sessionEditor}/bin/session-editor";
+        GIT_EDITOR = "${sessionEditor}/bin/session-editor";
+        STARSHIP_CONFIG = lib.mkForce "${config.home.homeDirectory}/.config/noctalia/starship.toml";
+      };
+    };
+}

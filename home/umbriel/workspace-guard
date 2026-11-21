@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Keeps a named workspace for the apps that belong there: a window that opens
+# on it and does not match the allowed app ids is moved to the workspace the
+# user came from (the output's "previous" workspace), and focus follows it.
+# Only newly opened windows are checked; moving a window there by hand, dialogs
+# (windows with a parent), scratchpad and pinned windows are left alone.
+#
+# usage: umbriel-workspace-guard <workspace-name> <allowed-app-id-regex>
+set -euo pipefail
+
+[[ $# -eq 2 ]] || { echo "usage: umbriel-workspace-guard <workspace-name> <allowed-app-id-regex>" >&2; exit 2; }
+guarded=$1
+allowed=$2
+
+declare -A known=()
+baseline=1
+
+move_out() {
+  local id=$1 app=$2 output=$3 target
+  # The previous workspace on that output, or else its first other workspace.
+  # Named workspaces are selected with --name, anonymous ones by position.
+  target=$(umbriel workspaces --json | jq -r --arg out "$output" --arg g "$guarded" '
+    [.[] | select(.output == $out and .name != $g)] as $ws
+    | (first($ws[] | select(.previous)) // first($ws | sort_by(.index)[]) // empty)
+    | if .named then "--name\t\(.name)" else "\(.index)" end')
+  if [[ -z "$target" ]]; then
+    echo "no other workspace on $output for $app ($id)" >&2
+    return
+  fi
+  local -a sel
+  IFS=$'\t' read -r -a sel <<<"$target"
+  echo "moving $app ($id) from $guarded to ${sel[*]} on $output"
+  umbriel msg window-focus "$id" &&
+    umbriel msg window-move-to-workspace "${sel[@]}" --output "$output" ||
+    echo "moving $app ($id) failed" >&2
+}
+
+while IFS= read -r event; do
+  # One snapshot per change: [id, app_id, output, workspace name, candidate].
+  rows=$(jq -r --arg g "$guarded" --argjson ws "$(umbriel workspaces --json)" '
+    ($ws | map({(.id): .name}) | add // {}) as $names
+    | .data[]
+    | [.id, .app_id, .output, ($names[.workspace] // ""),
+       (.parent == "" and .scratchpad == "" and (.pinned | not))]
+    | @tsv' <<<"$event") || continue
+
+  while IFS=$'\t' read -r id app output wsname candidate; do
+    [[ -n "$id" ]] || continue
+    [[ -z "${known[$id]:-}" ]] || continue
+    known[$id]=1
+    ((baseline)) && continue
+    if [[ $wsname == "$guarded" && $candidate == true && ! ${app} =~ $allowed ]]; then
+      move_out "$id" "$app" "$output"
+    fi
+  done <<<"$rows"
+  baseline=0
+
+  # Forget closed windows so the table does not grow without bound.
+  declare -A open=()
+  while IFS=$'\t' read -r id _; do [[ -n "$id" ]] && open[$id]=1; done <<<"$rows"
+  for id in "${!known[@]}"; do [[ -n "${open[$id]:-}" ]] || unset "known[$id]"; done
+  unset open
+done < <(umbriel subscribe windows)

@@ -1,0 +1,132 @@
+{
+  flake.modules.nixos.nextcloud =
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      domain = config.my.network.domain;
+      home = config.users.users.${config.my.user.name}.home;
+      # XDG folders shown read-only in Nextcloud (a "Home" external storage
+      # limited to the user). Only these folders are mounted, never all of ~.
+      homeDirs = [
+        "Desktop"
+        "Documents"
+        "Downloads"
+        "Pictures"
+        "Projects"
+      ];
+      # Folders on the external drives that www-data cannot read
+      # (my.externalDrives.hiddenFromNextcloud): each is covered with an empty
+      # read-only folder inside the container.
+      hiddenExternal = config.my.externalDrives.hiddenFromNextcloud;
+      occ = "${pkgs.podman}/bin/podman exec --user 33 nextcloud php /var/www/html/occ";
+    in
+    {
+      config = lib.mkMerge [
+        {
+          my.services.nextcloud = {
+            port = 18089;
+            localName = "nextcloud";
+            publicName = "cloud";
+            lanPort = 8095;
+            extraConfig = ''
+              @carddav path /.well-known/carddav
+              redir @carddav /remote.php/dav 301
+              @caldav path /.well-known/caldav
+              redir @caldav /remote.php/dav 301
+            '';
+          };
+        }
+        (lib.mkIf config.my.services.nextcloud.enable {
+          virtualisation.oci-containers.containers = {
+            nextcloud-db = {
+              image = "docker.io/library/postgres:17-alpine";
+              volumes = [ "/srv/nextcloud/db:/var/lib/postgresql/data" ];
+              environmentFiles = [ "/etc/nextcloud/db.env" ];
+              extraOptions = [ "--ip=10.88.0.20" ];
+            };
+            nextcloud-redis = {
+              image = "docker.io/library/redis:alpine";
+              extraOptions = [ "--ip=10.88.0.21" ];
+            };
+            nextcloud = {
+              image = "docker.io/library/nextcloud:34.0.2-apache";
+              dependsOn = [
+                "nextcloud-db"
+                "nextcloud-redis"
+              ];
+              ports = [ "127.0.0.1:18089:80" ];
+              volumes = [
+                "/srv/nextcloud/html:/var/www/html"
+                "/srv/nextcloud/data:/var/www/data"
+                "/srv/torrents/complete:/var/www/downloads:ro"
+              ]
+              ++ map (d: "/srv/external/${d}:/var/www/external/${d}:ro") config.my.externalDrives.names
+              ++ map (d: "${home}/${d}:/var/www/home/${d}:ro") homeDirs
+              ++ map (d: "${pkgs.emptyDirectory}:/var/www/external/${d}:ro") hiddenExternal;
+              environmentFiles = [ "/etc/nextcloud/db.env" ];
+              environment = {
+                POSTGRES_HOST = "nextcloud-db";
+                REDIS_HOST = "nextcloud-redis";
+                NEXTCLOUD_DATA_DIR = "/var/www/data";
+                NEXTCLOUD_TRUSTED_DOMAINS = "${config.networking.hostName} cloud.${domain} localhost 127.0.0.1";
+                PHP_UPLOAD_LIMIT = "10G";
+                PHP_MEMORY_LIMIT = "1G";
+              };
+              extraOptions = [
+                "--group-add=1000"
+                "--add-host=nextcloud-db:10.88.0.20"
+                "--add-host=nextcloud-redis:10.88.0.21"
+              ];
+            };
+          };
+
+          # ~/Downloads is private (0700); let the container's www-data (uid 33)
+          # read it, including files added later.
+          systemd.tmpfiles.rules = [ "A+ ${home}/Downloads - - - - u:33:rX,d:u:33:rX" ];
+
+          systemd.services.nextcloud-cron = {
+            description = "Run Nextcloud background jobs";
+            after = [ "podman-nextcloud.service" ];
+            requires = [ "podman-nextcloud.service" ];
+            serviceConfig = {
+              Type = "oneshot";
+              ExecStart = "${pkgs.podman}/bin/podman exec --user 33 nextcloud php -f /var/www/html/cron.php";
+            };
+          };
+          # Files copied straight onto the mounted drives are not noticed until
+          # a folder is opened in Nextcloud, so rescan everything hourly
+          # and add new audio to the Music library. Keep the first full scan
+          # out of startup; it can take over a minute on the external drives.
+          systemd.services.nextcloud-scan = {
+            description = "Rescan Nextcloud files and the Music library";
+            after = [ "podman-nextcloud.service" ];
+            requires = [ "podman-nextcloud.service" ];
+            serviceConfig.Type = "oneshot";
+            script = ''
+              ${occ} files:scan --all --quiet
+              ${occ} music:scan --all
+            '';
+          };
+          systemd.timers.nextcloud-scan = {
+            wantedBy = [ "timers.target" ];
+            timerConfig = {
+              OnBootSec = "10m";
+              OnUnitActiveSec = "1h";
+              RandomizedDelaySec = "5m";
+            };
+          };
+          systemd.timers.nextcloud-cron = {
+            wantedBy = [ "timers.target" ];
+            timerConfig = {
+              OnCalendar = "*:0/5";
+              Persistent = true;
+            };
+          };
+        })
+      ];
+    };
+}

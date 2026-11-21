@@ -1,0 +1,16 @@
+--- a/types/wlr_linux_dmabuf_v1.c
++++ b/types/wlr_linux_dmabuf_v1.c
+@@ -219,9 +219,11 @@
+ 			wlr_log_errno(WLR_ERROR, "Failed to import DMA-BUF FD for plane %d", i);
+ 			return false;
+ 		}
++		// vmwgfx (VMware guests) imports the DMA-BUF but rejects GEM_CLOSE on
++		// the PRIME handle with EINVAL. The import is what this checks, so a
++		// failed close must not reject the buffer.
+ 		if (drmCloseBufferHandle(linux_dmabuf->main_device_fd, handle) != 0) {
+-			wlr_log_errno(WLR_ERROR, "Failed to close buffer handle for plane %d", i);
+-			return false;
++			wlr_log_errno(WLR_DEBUG, "Failed to close buffer handle for plane %d", i);
+ 		}
+ 	}
+ 	return true;

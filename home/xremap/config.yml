@@ -1,0 +1,464 @@
+# Pass keyboard and mouse shortcuts through unchanged while Moonlight is focused.
+virtual_modifiers:
+  - CapsLock
+
+modmap:
+  # Virtual modifiers are swallowed even when no keymap matches; emit CapsLock
+  # directly in Moonlight so a single press and held chords reach the host.
+  - name: Moonlight CapsLock passthrough
+    application:
+      only: [com.moonlight_stream.Moonlight, moonlight]
+    remap:
+      CapsLock:
+        skip_key_event: true
+        press: { press: CapsLock }
+        repeat: { repeat: CapsLock }
+        release: { release: CapsLock }
+
+  - name: CapsLock shortcut layer with double-tap lock
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight]
+    remap:
+      CapsLock:
+        held: CapsLock
+        alone: BTN_TRIGGER_HAPPY1
+        free_hold: true
+
+keymap:
+  - name: Double-tap CapsLock
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight]
+    remap:
+      BTN_TRIGGER_HAPPY1:
+        remap:
+          BTN_TRIGGER_HAPPY1: CapsLock
+        timeout_millis: 300
+
+  - name: Right Control app initials
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight]
+    exact_match: true
+    remap:
+      Ctrl_R-a:
+        launch: ["@home@/.local/bin/rcmd", "a"]
+      Ctrl_R-Shift-a:
+        launch: ["@home@/.local/bin/rcmd", "a", "--reverse"]
+      Ctrl_R-Alt-a:
+        launch: ["@home@/.local/bin/rcmd", "a", "--choose"]
+      Ctrl_R-b:
+        launch: ["@home@/.local/bin/rcmd", "b"]
+      Ctrl_R-Shift-b:
+        launch: ["@home@/.local/bin/rcmd", "b", "--reverse"]
+      Ctrl_R-Alt-b:
+        launch: ["@home@/.local/bin/rcmd", "b", "--choose"]
+      Ctrl_R-c:
+        launch: ["@home@/.local/bin/rcmd", "c"]
+      Ctrl_R-Shift-c:
+        launch: ["@home@/.local/bin/rcmd", "c", "--reverse"]
+      Ctrl_R-Alt-c:
+        launch: ["@home@/.local/bin/rcmd", "c", "--choose"]
+      Ctrl_R-d:
+        launch: ["@home@/.local/bin/rcmd", "d"]
+      Ctrl_R-Shift-d:
+        launch: ["@home@/.local/bin/rcmd", "d", "--reverse"]
+      Ctrl_R-Alt-d:
+        launch: ["@home@/.local/bin/rcmd", "d", "--choose"]
+      Ctrl_R-e:
+        launch: ["@home@/.local/bin/rcmd", "e"]
+      Ctrl_R-Shift-e:
+        launch: ["@home@/.local/bin/rcmd", "e", "--reverse"]
+      Ctrl_R-Alt-e:
+        launch: ["@home@/.local/bin/rcmd", "e", "--choose"]
+      Ctrl_R-f:
+        launch: ["@home@/.local/bin/rcmd", "f"]
+      Ctrl_R-Shift-f:
+        launch: ["@home@/.local/bin/rcmd", "f", "--reverse"]
+      Ctrl_R-Alt-f:
+        launch: ["@home@/.local/bin/rcmd", "f", "--choose"]
+      Ctrl_R-g:
+        launch: ["@home@/.local/bin/rcmd", "g"]
+      Ctrl_R-Shift-g:
+        launch: ["@home@/.local/bin/rcmd", "g", "--reverse"]
+      Ctrl_R-Alt-g:
+        launch: ["@home@/.local/bin/rcmd", "g", "--choose"]
+      Ctrl_R-h:
+        launch: ["@home@/.local/bin/rcmd", "h"]
+      Ctrl_R-Shift-h:
+        launch: ["@home@/.local/bin/rcmd", "h", "--reverse"]
+      Ctrl_R-Alt-h:
+        launch: ["@home@/.local/bin/rcmd", "h", "--choose"]
+      Ctrl_R-i:
+        launch: ["@home@/.local/bin/rcmd", "i"]
+      Ctrl_R-Shift-i:
+        launch: ["@home@/.local/bin/rcmd", "i", "--reverse"]
+      Ctrl_R-Alt-i:
+        launch: ["@home@/.local/bin/rcmd", "i", "--choose"]
+      Ctrl_R-j:
+        launch: ["@home@/.local/bin/rcmd", "j"]
+      Ctrl_R-Shift-j:
+        launch: ["@home@/.local/bin/rcmd", "j", "--reverse"]
+      Ctrl_R-Alt-j:
+        launch: ["@home@/.local/bin/rcmd", "j", "--choose"]
+      Ctrl_R-k:
+        launch: ["@home@/.local/bin/rcmd", "k"]
+      Ctrl_R-Shift-k:
+        launch: ["@home@/.local/bin/rcmd", "k", "--reverse"]
+      Ctrl_R-Alt-k:
+        launch: ["@home@/.local/bin/rcmd", "k", "--choose"]
+      Ctrl_R-l:
+        launch: ["@home@/.local/bin/rcmd", "l"]
+      Ctrl_R-Shift-l:
+        launch: ["@home@/.local/bin/rcmd", "l", "--reverse"]
+      Ctrl_R-Alt-l:
+        launch: ["@home@/.local/bin/rcmd", "l", "--choose"]
+      Ctrl_R-m:
+        launch: ["@home@/.local/bin/rcmd", "m"]
+      Ctrl_R-Shift-m:
+        launch: ["@home@/.local/bin/rcmd", "m", "--reverse"]
+      Ctrl_R-Alt-m:
+        launch: ["@home@/.local/bin/rcmd", "m", "--choose"]
+      Ctrl_R-n:
+        launch: ["@home@/.local/bin/rcmd", "n"]
+      Ctrl_R-Shift-n:
+        launch: ["@home@/.local/bin/rcmd", "n", "--reverse"]
+      Ctrl_R-Alt-n:
+        launch: ["@home@/.local/bin/rcmd", "n", "--choose"]
+      Ctrl_R-o:
+        launch: ["@home@/.local/bin/rcmd", "o"]
+      Ctrl_R-Shift-o:
+        launch: ["@home@/.local/bin/rcmd", "o", "--reverse"]
+      Ctrl_R-Alt-o:
+        launch: ["@home@/.local/bin/rcmd", "o", "--choose"]
+      Ctrl_R-p:
+        launch: ["@home@/.local/bin/rcmd", "p"]
+      Ctrl_R-Shift-p:
+        launch: ["@home@/.local/bin/rcmd", "p", "--reverse"]
+      Ctrl_R-Alt-p:
+        launch: ["@home@/.local/bin/rcmd", "p", "--choose"]
+      Ctrl_R-q:
+        launch: ["@home@/.local/bin/rcmd", "q"]
+      Ctrl_R-Shift-q:
+        launch: ["@home@/.local/bin/rcmd", "q", "--reverse"]
+      Ctrl_R-Alt-q:
+        launch: ["@home@/.local/bin/rcmd", "q", "--choose"]
+      Ctrl_R-r:
+        launch: ["@home@/.local/bin/rcmd", "r"]
+      Ctrl_R-Shift-r:
+        launch: ["@home@/.local/bin/rcmd", "r", "--reverse"]
+      Ctrl_R-Alt-r:
+        launch: ["@home@/.local/bin/rcmd", "r", "--choose"]
+      Ctrl_R-s:
+        launch: ["@home@/.local/bin/rcmd", "s"]
+      Ctrl_R-Shift-s:
+        launch: ["@home@/.local/bin/rcmd", "s", "--reverse"]
+      Ctrl_R-Alt-s:
+        launch: ["@home@/.local/bin/rcmd", "s", "--choose"]
+      Ctrl_R-t:
+        launch: ["@home@/.local/bin/rcmd", "t"]
+      Ctrl_R-Shift-t:
+        launch: ["@home@/.local/bin/rcmd", "t", "--reverse"]
+      Ctrl_R-Alt-t:
+        launch: ["@home@/.local/bin/rcmd", "t", "--choose"]
+      Ctrl_R-u:
+        launch: ["@home@/.local/bin/rcmd", "u"]
+      Ctrl_R-Shift-u:
+        launch: ["@home@/.local/bin/rcmd", "u", "--reverse"]
+      Ctrl_R-Alt-u:
+        launch: ["@home@/.local/bin/rcmd", "u", "--choose"]
+      Ctrl_R-v:
+        launch: ["@home@/.local/bin/rcmd", "v"]
+      Ctrl_R-Shift-v:
+        launch: ["@home@/.local/bin/rcmd", "v", "--reverse"]
+      Ctrl_R-Alt-v:
+        launch: ["@home@/.local/bin/rcmd", "v", "--choose"]
+      Ctrl_R-w:
+        launch: ["@home@/.local/bin/rcmd", "w"]
+      Ctrl_R-Shift-w:
+        launch: ["@home@/.local/bin/rcmd", "w", "--reverse"]
+      Ctrl_R-Alt-w:
+        launch: ["@home@/.local/bin/rcmd", "w", "--choose"]
+      Ctrl_R-x:
+        launch: ["@home@/.local/bin/rcmd", "x"]
+      Ctrl_R-Shift-x:
+        launch: ["@home@/.local/bin/rcmd", "x", "--reverse"]
+      Ctrl_R-Alt-x:
+        launch: ["@home@/.local/bin/rcmd", "x", "--choose"]
+      Ctrl_R-y:
+        launch: ["@home@/.local/bin/rcmd", "y"]
+      Ctrl_R-Shift-y:
+        launch: ["@home@/.local/bin/rcmd", "y", "--reverse"]
+      Ctrl_R-Alt-y:
+        launch: ["@home@/.local/bin/rcmd", "y", "--choose"]
+      Ctrl_R-z:
+        launch: ["@home@/.local/bin/rcmd", "z"]
+      Ctrl_R-Shift-z:
+        launch: ["@home@/.local/bin/rcmd", "z", "--reverse"]
+      Ctrl_R-Alt-z:
+        launch: ["@home@/.local/bin/rcmd", "z", "--choose"]
+
+  - name: Caps desktop layer - Meta movement
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight]
+    exact_match: true
+    remap:
+      CapsLock-Super-v: Ctrl-Alt-Shift-Super-v
+      CapsLock-Super-w: Ctrl-Alt-Shift-Super-w
+      CapsLock-Super-a: Ctrl-Alt-Shift-Super-a
+      CapsLock-Super-s: Ctrl-Alt-Shift-Super-s
+      CapsLock-Super-d: Ctrl-Alt-Shift-Super-d
+      CapsLock-Super-q: Ctrl-Alt-Shift-Super-q
+      CapsLock-Super-r: Ctrl-Alt-Shift-Super-r
+      CapsLock-Super-0: Ctrl-Alt-Shift-Super-0
+      CapsLock-Super-KEY_HOME: Ctrl-Alt-Shift-Super-KEY_HOME
+      CapsLock-Super-KEY_END: Ctrl-Alt-Shift-Super-KEY_END
+      CapsLock-Super-KEY_PAGEUP: Ctrl-Alt-Shift-Super-KEY_PAGEUP
+      CapsLock-Super-KEY_PAGEDOWN: Ctrl-Alt-Shift-Super-KEY_PAGEDOWN
+
+  - name: Caps desktop layer - non-letter keys
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight]
+    exact_match: true
+    remap:
+      CapsLock-space: Ctrl-Alt-Super-space
+      CapsLock-tab: Ctrl-Alt-Super-tab
+      CapsLock-enter: Ctrl-Alt-Super-enter
+      CapsLock-comma: Ctrl-Alt-Super-comma
+      CapsLock-dot: Ctrl-Alt-Super-dot
+      CapsLock-slash: Ctrl-Alt-Super-slash
+      CapsLock-KEY_SEMICOLON: Ctrl-Alt-Super-KEY_SEMICOLON
+      CapsLock-KEY_APOSTROPHE: Ctrl-Alt-Super-KEY_APOSTROPHE
+      CapsLock-KEY_LEFTBRACE: Ctrl-Alt-Super-KEY_LEFTBRACE
+      CapsLock-KEY_RIGHTBRACE: Ctrl-Alt-Super-KEY_RIGHTBRACE
+      CapsLock-esc: Ctrl-Alt-Super-esc
+      # Avoid Ctrl+Alt+F1, which the kernel intercepts for VT switching.
+      CapsLock-f1: Ctrl-Alt-Super-KEY_INSERT
+      CapsLock-f4: Ctrl-Alt-Super-Shift-KEY_INSERT
+      CapsLock-KEY_HOME: Ctrl-Alt-Super-KEY_HOME
+      CapsLock-KEY_END: Ctrl-Alt-Super-KEY_END
+      CapsLock-backspace: Delete
+      CapsLock-XDOWNSCROLL: KEY_F13
+      CapsLock-XUPSCROLL: KEY_F14
+      CapsLock-XLEFTSCROLL: Ctrl-Alt-Super-KEY_PAGEUP
+      CapsLock-XRIGHTSCROLL: Ctrl-Alt-Super-KEY_PAGEDOWN
+      CapsLock-KEY_PAGEUP: Ctrl-Alt-Super-KEY_PAGEUP
+      CapsLock-KEY_PAGEDOWN: Ctrl-Alt-Super-KEY_PAGEDOWN
+
+  - name: Caps desktop layer - shell management
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight]
+    exact_match: true
+    remap:
+      CapsLock-Shift-0: Ctrl-Alt-Shift-Super-0
+      CapsLock-Shift-k: Ctrl-Alt-Shift-Super-k
+      CapsLock-Shift-l: Ctrl-Alt-Shift-Super-l
+
+  - name: Caps desktop layer - media keys
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight]
+    remap:
+      # Caps+F8 is Play/Pause; Caps+P falls through to the letters layer (pin).
+      CapsLock-f8: KEY_PLAYPAUSE
+      CapsLock-left: KEY_PREVIOUSSONG
+      CapsLock-right: KEY_NEXTSONG
+      CapsLock-up: KEY_VOLUMEUP
+      CapsLock-down: KEY_VOLUMEDOWN
+
+  - name: Caps desktop layer - letters and digits
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight]
+    exact_match: true
+    remap:
+      CapsLock-a: Ctrl-Alt-Super-a
+      CapsLock-b: Ctrl-Alt-Super-b
+      CapsLock-c: Ctrl-Alt-Super-c
+      CapsLock-d: Ctrl-Alt-Super-d
+      CapsLock-e: Ctrl-Alt-Super-e
+      CapsLock-f: Ctrl-Alt-Super-f
+      CapsLock-g: Ctrl-Alt-Super-g
+      CapsLock-h: Ctrl-Alt-Super-h
+      CapsLock-i: Ctrl-Alt-Super-i
+      CapsLock-j: Ctrl-Alt-Super-j
+      CapsLock-k: Ctrl-Alt-Super-k
+      CapsLock-l: Ctrl-Alt-Super-l
+      CapsLock-m: Ctrl-Alt-Super-m
+      CapsLock-n: Ctrl-Alt-Super-n
+      CapsLock-o: Ctrl-Alt-Super-o
+      CapsLock-p: Ctrl-Alt-Super-p
+      CapsLock-q: Ctrl-Alt-Super-q
+      CapsLock-r: Ctrl-Alt-Super-r
+      CapsLock-s: Ctrl-Alt-Super-s
+      CapsLock-t: Ctrl-Alt-Super-t
+      CapsLock-u: Ctrl-Alt-Super-u
+      CapsLock-v: Ctrl-Alt-Super-v
+      CapsLock-w: Ctrl-Alt-Super-w
+      CapsLock-x: Ctrl-Alt-Super-x
+      CapsLock-y: Ctrl-Alt-Super-y
+      CapsLock-z: Ctrl-Alt-Super-z
+      CapsLock-0: Ctrl-Alt-Super-0
+      CapsLock-1: Ctrl-Alt-Super-1
+      CapsLock-2: Ctrl-Alt-Super-2
+      CapsLock-3: Ctrl-Alt-Super-3
+      CapsLock-4: Ctrl-Alt-Super-4
+      CapsLock-5: Ctrl-Alt-Super-5
+      CapsLock-6: Ctrl-Alt-Super-6
+      CapsLock-7: Ctrl-Alt-Super-7
+      CapsLock-8: Ctrl-Alt-Super-8
+      CapsLock-9: Ctrl-Alt-Super-9
+      CapsLock-slash: Ctrl-Alt-Super-slash
+      CapsLock-grave: Ctrl-Alt-Super-grave
+
+  - name: Caps desktop layer - Ghostty
+    application:
+      only:
+        - ghostty
+        - com.mitchellh.ghostty
+    remap:
+      CapsLock-comma: Ctrl-comma
+
+  # Monstar has no tabs of its own; Umbriel stacks the new window as a tab
+  # (under Hyprland: a window group, see home/umbriel/monstar-tab).
+  # Must stay ahead of the terminal and global keymaps that also bind Super-t.
+  - name: "New tab (Monstar)"
+    application:
+      only:
+        - dev.rockorager.monstar
+    remap:
+      Super-t:
+        launch: ["@home@/.local/bin/umbriel-monstar-tab"]
+
+  - name: Terminal clipboard (Konsole, xterm, Ghostty, Monstar)
+    application:
+      only:
+        - konsole
+        - org.kde.konsole
+        - xterm
+        - ghostty
+        - com.mitchellh.ghostty
+        - dev.rockorager.monstar
+        - gnome-terminal
+        - gnome-terminal-server
+        - alacritty
+        - kitty
+        - wezterm
+        - org.wezfurlong.wezterm
+        - tilix
+        - terminator
+        - urxvt
+        - foot
+        - footclient
+        - xfce4-terminal
+        - st
+        - hyper
+    remap:
+      Super-c: Ctrl-Shift-c
+      Super-v: Ctrl-Shift-v
+      Super-t: Ctrl-Shift-t
+      Super-w: Ctrl-Shift-w
+
+  - name: Ctrl+A/E line navigation (non-terminal)
+    application:
+      not:
+        - dev.zed.Zed
+        - com.moonlight_stream.Moonlight
+        - moonlight
+        - konsole
+        - org.kde.konsole
+        - xterm
+        - ghostty
+        - com.mitchellh.ghostty
+        - dev.rockorager.monstar
+        - gnome-terminal
+        - gnome-terminal-server
+        - alacritty
+        - kitty
+        - wezterm
+        - org.wezfurlong.wezterm
+        - tilix
+        - terminator
+        - urxvt
+        - foot
+        - footclient
+        - xfce4-terminal
+        - st
+        - hyper
+    remap:
+      Ctrl-a: Home
+      Ctrl-e: End
+      Ctrl-d: Delete
+      Ctrl-k:
+        - Shift-End
+        - Delete
+      Alt-left: Ctrl-left
+      Alt-right: Ctrl-right
+
+  - name: "Preferences (general)"
+    application:
+      not:
+        - dev.zed.Zed
+        - com.moonlight_stream.Moonlight
+        - moonlight
+        - com.mitchellh.ghostty
+        - ghostty
+    remap:
+      # Preferences
+      Super-comma: Ctrl-Shift-comma
+
+  - name: "Preferences (ghostty)"
+    application:
+      only:
+        - com.mitchellh.ghostty
+        - ghostty
+    remap:
+      Super-comma: Ctrl-comma
+      Super-shift-comma: Ctrl-Shift-comma
+
+  # Zed has its own macOS JetBrains keymap on Super (home/zed, SYS-093).
+  - name: Mac-like shortcuts (global)
+    application:
+      not: [com.moonlight_stream.Moonlight, moonlight, dev.zed.Zed]
+    remap:
+      # Clipboard
+      Super-c: Ctrl-c
+      Super-v: Ctrl-v
+      Super-x: Ctrl-x
+
+      # Undo / Redo
+      Super-z: Ctrl-z
+      Super-Shift-z: Ctrl-Shift-z
+
+      # Select all
+      Super-a: Ctrl-a
+
+      # Save
+      Super-s: Ctrl-s
+
+      # Find
+      Super-f: Ctrl-f
+
+      # New window/tab
+      Super-t: Ctrl-t
+      Super-n: Ctrl-n
+
+      # Close tab / window
+      Super-w: Ctrl-w
+
+      # Quit application
+      Super-q: Alt-F4
+
+      # Switch tabs
+      Super-Shift-LeftBrace: Ctrl-Shift-Tab
+      Super-Shift-RightBrace: Ctrl-Tab
+
+      # Reopen closed tab
+      Super-Shift-t: Ctrl-Shift-t
+
+      # Bold / Italic / Underline (text editing)
+      Super-b: Ctrl-b
+      Super-i: Ctrl-i
+      Super-u: Ctrl-u
+
+      # Reload
+      Super-r: Ctrl-r
+
+      # URL bar
+      Super-l: Ctrl-l

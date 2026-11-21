@@ -1,0 +1,58 @@
+/* Translucent Zen chrome over Noctalia's zen-browser theme, which paints every
+   surface with an opaque --base. Imported after Noctalia's CSS (modules/home/
+   zen.nix), so equal-importance rules here win. Umbriel's blur and liquid
+   glass show through wherever these colours are see-through; web pages stay
+   opaque because each site draws its own background. The alphas are
+   home/appearance.nix's appOpacity for each theme mode, shared with Ghostty
+   and Zed; Zen follows the system colour scheme Noctalia sets. */
+:root {
+  --erebor-zen-alpha: @darkPercent@%;
+  --erebor-zen-bg: color-mix(in srgb, var(--base) var(--erebor-zen-alpha), transparent);
+  --zen-main-browser-background: var(--erebor-zen-bg) !important;
+  --zen-themed-toolbar-bg: transparent !important;
+  --toolbar-bgcolor: transparent !important;
+  --toolbox-bgcolor-inactive: transparent !important;
+  --lwt-sidebar-background-color: transparent !important;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --erebor-zen-alpha: @lightPercent@%;
+  }
+}
+
+/* The one painted layer: the frame behind the sidebar, toolbar and content. */
+#zen-browser-background {
+  --zen-main-browser-background: var(--erebor-zen-bg) !important;
+  --zen-main-browser-background-old: var(--erebor-zen-bg) !important;
+  background: var(--erebor-zen-bg) !important;
+}
+
+/* Everything Noctalia fills with --base on top of it, and the wrapper Zen
+   greys out with an opaque InactiveCaption while the window is unfocused
+   (zen.view.grey-out-inactive-windows, on by default). */
+#main-window,
+#zen-main-app-wrapper,
+#zen-main-app-wrapper:-moz-window-inactive,
+#navigator-toolbox,
+#zen-tabbox-wrapper,
+.sidebar-panel,
+#zen-sidebar-splitter,
+#zen-appcontent-navbar-container,
+#TabsToolbar,
+hbox#titlebar {
+  background: transparent !important;
+}
+
+/* Firefox's body switches to --toolbox-background-color-inactive (an opaque
+   headerbar colour) while the window is unfocused, under everything above. */
+:root,
+body,
+#main-window {
+  --toolbox-background-color-inactive: transparent !important;
+}
+
+body,
+body:-moz-window-inactive {
+  background-color: transparent !important;
+}

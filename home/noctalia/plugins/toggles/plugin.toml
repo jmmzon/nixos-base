@@ -1,0 +1,86 @@
+# Bar buttons whose glyph follows a shell setting. Each reads the setting with
+# noctalia.getSetting, so Noctalia calls onConfigChanged when it changes (also
+# when another tool edits the settings override), and the glyph follows.
+
+id = "janzon/toggles"
+name = "Toggles"
+version = "1.0.0"
+plugin_api = 43
+author = "janzon"
+license = "MIT"
+tags = ["bar"]
+icon = "toggle-right"
+description = "Stateful toggles: bar pinning, headphone EQ, HDR, ambilight, the desktop mode and reduce transparency."
+
+# Default bar: pinned or smart auto-hide (noctalia-bar-autohide).
+[[widget]]
+id = "bar-pin"
+entry = "bar_pin.luau"
+
+# HDR on DP-1 (Umbriel): lit when on, dimmed when off; click toggles.
+[[widget]]
+id = "hdr"
+entry = "hdr.luau"
+
+# Ambilight (my.ambilight): lit when on, dimmed when off; click toggles.
+[[widget]]
+id = "ambilight"
+entry = "ambilight.luau"
+
+# Headphone EQ (my.headphoneEq): default output is a preset's EQ sink or the
+# plain DAC. The service polls `headphone-eq status`; the tile and bar widget
+# open the panel (preset picker) and toggle on right-click.
+[[service]]
+id = "headphone-eq-state"
+entry = "headphone_eq_service.luau"
+
+[[widget]]
+id = "headphone-eq"
+entry = "headphone_eq_widget.luau"
+
+# Entry ids are unique across kinds, so the tile has its own.
+[[shortcut]]
+id = "headphone-eq-tile"
+entry = "headphone_eq_shortcut.luau"
+
+[[panel]]
+id = "eq"
+entry = "headphone_eq_panel.luau"
+width = 300
+height = "content"
+max_height = 240
+placement = "attached"
+position = "auto"
+open_near_click = true
+
+# Desktop mode (erebor-modes, SYS-122): the service publishes its state; the
+# widget is a leaf while power-saver is on (hidden otherwise) and opens the
+# panel, which lists what the mode changed with Switch to balanced and Power
+# profiles buttons. The ambilight button reads the same state.
+[[service]]
+id = "modes"
+entry = "modes_service.luau"
+
+[[widget]]
+id = "mode"
+entry = "mode_widget.luau"
+
+[[panel]]
+id = "mode-panel"
+entry = "mode_panel.luau"
+width = 520
+height = "content"
+max_height = 420
+placement = "attached"
+position = "auto"
+open_near_click = true
+
+# Reduce transparency (erebor-modes toggle mode): bar button and control-center
+# tile, lit while on; the modes service above publishes the state.
+[[widget]]
+id = "reduce-transparency"
+entry = "reduce_transparency_widget.luau"
+
+[[shortcut]]
+id = "reduce-transparency-tile"
+entry = "reduce_transparency_shortcut.luau"

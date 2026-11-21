@@ -1,0 +1,54 @@
+# Live wallpapers: a picker for Noctalia's live wallpapers, the macOS
+# Sequoia scene ("sequoia:") and Shadertoy-style shaders ("shader:", for
+# example KDE Shader Wallpaper's library). The [[panel]] lists them with
+# previews, by category and search, applies one per output (or to all), and
+# pauses or stops it. Its settings strip writes [wallpaper.shader] through
+# `noctalia msg config-set`. The bar [[widget]] and control-center [[shortcut]]
+# open it (a right-click on the widget stops or restarts the animation); so does the [[service]]'s IPC (see service.luau), which also
+# pauses and resumes shader wallpapers for keybinds.
+#
+# Previews: library shaders are rendered once by `noctalia-shader-thumbnail`
+# (part of the patched Noctalia) into ~/.cache/noctalia/shader-thumbnails;
+# Sequoia uses its latest still frame.
+#
+# Needs a Noctalia with the live wallpaper patches; without them the panel
+# says so.
+
+id = "janzon/live-wallpaper"
+name = "Live Wallpapers"
+version = "1.0.0"
+plugin_api = 51
+author = "janzon"
+license = "MIT"
+tags = ["wallpaper", "animated", "shader"]
+icon = "sparkles"
+description = "Pick, pause and tune Sequoia and Shadertoy-style shader wallpapers."
+
+# IPC for keybinds: noctalia msg plugin janzon/live-wallpaper:service all toggle|pause|resume|toggle-pause|set <path>
+[[service]]
+id = "service"
+entry = "service.luau"
+
+[[panel]]
+id = "picker"
+entry = "panel.luau"
+width = 980
+height = 820
+placement = "attached"
+position = "auto"
+
+# Bar tile that opens the picker.
+[[widget]]
+id = "live-wallpaper"
+entry = "widget.luau"
+
+  [[widget.setting]]
+  key = "glyph"
+  type = "glyph"
+  label_key = "settings.glyph.label"
+  default = "sparkles"
+
+# Control center shortcut that opens the picker.
+[[shortcut]]
+id = "shortcut"
+entry = "shortcut.luau"

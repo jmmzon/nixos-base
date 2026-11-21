@@ -1,0 +1,1331 @@
+diff --git a/meson.build b/meson.build
+index 55ff1f36b..e399d353b 100644
+--- a/meson.build
++++ b/meson.build
+@@ -658,10 +658,13 @@ _noctalia_sources = files(
+   'src/shell/render/programs/graph_program.cpp',
+   'src/shell/render/programs/lockscreen_transition_program.cpp',
+   'src/shell/render/programs/screen_corner_program.cpp',
++  'src/shell/render/programs/liquid_glass_program.cpp',
+   'src/shell/render/programs/wallpaper_mask_program.cpp',
+   'src/shell/render/programs/wallpaper_program.cpp',
+   'src/shell/render/programs/weather_effect_program.cpp',
+   'src/shell/render/screen_corner_node.cpp',
++  'src/shell/render/glass_params.cpp',
++  'src/shell/render/liquid_glass_node.cpp',
+   'src/shell/render/wallpaper_mask_node.cpp',
+   'src/shell/render/wallpaper_node.cpp',
+   'src/shell/render/weather_effect_node.cpp',
+diff --git a/src/app/application_ui.cpp b/src/app/application_ui.cpp
+index d77935730..1fb725a25 100644
+--- a/src/app/application_ui.cpp
++++ b/src/app/application_ui.cpp
+@@ -41,6 +41,7 @@
+ #include "shell/live/window_geometry.h"
+ #include "shell/panel/plugin_panel.h"
+ #include "shell/polkit/polkit_panel.h"
++#include "shell/render/glass_params.h"
+ #include "shell/session/session_ipc.h"
+ #include "shell/session/session_panel.h"
+ #include "shell/setup_wizard/setup_wizard_panel.h"
+@@ -335,6 +336,10 @@ void Application::initLockScreenAndSession() {
+         m_idleManager.setSessionLocked(true);
+         m_screenTimeService.setSessionLocked(true);
+         m_hookManager.fire(HookKind::SessionLocked);
++        // The lock just read the window glass; bring the greeter's copy up to date.
++        if (glass_params::greeterOutOfDate()) {
++          scheduleGreeterAutoSync();
++        }
+         if (m_logindService != nullptr) {
+           m_logindService->setSessionLockedHint(true);
+         }
+diff --git a/src/shell/desktop/desktop_widget.cpp b/src/shell/desktop/desktop_widget.cpp
+index 4e90624cc..9937d4815 100644
+--- a/src/shell/desktop/desktop_widget.cpp
++++ b/src/shell/desktop/desktop_widget.cpp
+@@ -1,5 +1,7 @@
+ #include "shell/desktop/desktop_widget.h"
+ 
++#include "shell/render/liquid_glass_node.h"
++
+ #include "core/ui_phase.h"
+ #include "ui/builders.h"
+ #include "ui/controls/box.h"
+@@ -10,6 +12,9 @@
+ #include <string>
+ 
+ namespace {
++
++  // How much of the configured background stays as a tint over the glass.
++  constexpr float kGlassTintScale = 0.25F;
+   constexpr float kMinContentFit = 0.05F;
+   constexpr float kMaxContentFit = 20.0F;
+ } // namespace
+@@ -152,6 +157,9 @@ void DesktopWidget::setRoot(std::unique_ptr<Node> root) {
+   m_contentRoot = root.get();
+   m_outerRoot = ui::node({});
+   if (m_bgEnabled) {
++    auto glass = std::make_unique<LiquidGlassNode>();
++    glass->setVisible(false);
++    m_glassNode = static_cast<LiquidGlassNode*>(m_outerRoot->addChild(std::move(glass)));
+     auto bg = ui::box({});
+     m_bgBox = bg.get();
+     m_outerRoot->addChild(std::move(bg));
+@@ -242,8 +250,21 @@ void DesktopWidget::applyBackground() {
+   if (m_bgEnabled && m_bgBox != nullptr) {
+     m_bgBox->setPosition(0.0F, 0.0F);
+     m_bgBox->setSize(boxW, boxH);
+-    m_bgBox->setFill(m_bgColor);
+     m_bgBox->setRadius(std::round(m_bgRadius * m_baseScale));
++    const bool glass = m_glass && m_glassNode != nullptr;
++    if (glass) {
++      // The glass draws the body and the rim; the box keeps a quarter of the fill as a tint.
++      m_glassNode->setPosition(0.0F, 0.0F);
++      m_glassNode->setSize(boxW, boxH);
++      m_glassNode->setRadius(std::round(m_bgRadius * m_baseScale));
++      m_glassNode->setTint(resolveColorSpec(scaleAlpha(m_bgColor, kGlassTintScale)));
++      m_bgBox->setFill(rgba(0.0F, 0.0F, 0.0F, 0.0F));
++    } else {
++      m_bgBox->setFill(m_bgColor);
++    }
++    if (m_glassNode != nullptr) {
++      m_glassNode->setVisible(glass);
++    }
+   }
+ 
+   Node* outerRoot = m_outerRoot ? m_outerRoot.get() : m_outerRootPtr;
+diff --git a/src/shell/desktop/desktop_widget.h b/src/shell/desktop/desktop_widget.h
+index 19a84178b..de2b2a1b2 100644
+--- a/src/shell/desktop/desktop_widget.h
++++ b/src/shell/desktop/desktop_widget.h
+@@ -14,6 +14,8 @@ class AnimationManager;
+ class Box;
+ class Renderer;
+ 
++class LiquidGlassNode;
++
+ class DesktopWidget {
+ public:
+   using UpdateCallback = std::function<void()>;
+@@ -79,6 +81,9 @@ public:
+   // Desktop widget editor keeps widgets visible for layout even when runtime idle-hide applies.
+   virtual void setEditorPreview(bool enabled) noexcept { (void)enabled; }
+   void setBackgroundStyle(const ColorSpec& color, float radius, float padding);
++  // Liquid glass under the background box (lock screen only: it bends what the same surface drew
++  // underneath, and desktop widgets sit on their own transparent layer). Call before layout().
++  void setGlass(bool enabled) noexcept { m_glass = enabled; }
+ 
+   bool hasBackground() const noexcept { return m_bgEnabled; }
+   bool hasVisibleBackground() const noexcept;
+@@ -162,12 +167,14 @@ protected:
+   Node* m_contentRoot = nullptr;
+   Node* m_outerRootPtr = nullptr;
+   Box* m_bgBox = nullptr;
++  LiquidGlassNode* m_glassNode = nullptr;
+   UpdateCallback m_updateCallback;
+   LayoutCallback m_layoutCallback;
+   RedrawCallback m_redrawCallback;
+   FrameTickRequestCallback m_frameTickRequestCallback;
+ 
+   bool m_bgEnabled = false;
++  bool m_glass = false;
+   ColorSpec m_bgColor;
+   float m_bgRadius = 0.0F;
+   float m_bgPadding = 0.0F;
+diff --git a/src/shell/greeter/greeter_appearance_sync.cpp b/src/shell/greeter/greeter_appearance_sync.cpp
+index b0cdea35c..98f37ccb4 100644
+--- a/src/shell/greeter/greeter_appearance_sync.cpp
++++ b/src/shell/greeter/greeter_appearance_sync.cpp
+@@ -8,6 +8,7 @@
+ #include "ipc/ipc_service.h"
+ #include "render/core/color.h"
+ #include "shell/live/live_wallpaper.h"
++#include "shell/render/glass_params.h"
+ #include "shell/sequoia/sequoia_live_wallpaper.h"
+ #include "shell/session/session_action_meta.h"
+ #include "system/process.h"
+@@ -527,6 +528,17 @@ namespace {
+     putPaletteColor(palette, "on_hover", ::palette.onHover);
+     appearance.insert("palette", std::move(palette));
+ 
++    // The window glass, so the greeter's login panel looks like the lock (and the windows).
++    const glass_params::Values glass = glass_params::loadWindowGlass();
++    if (!glass.empty()) {
++      toml::table glassTable;
++      for (const auto& [name, value] : glass) {
++        glassTable.insert_or_assign(name, value);
++      }
++      appearance.insert("glass", std::move(glassTable));
++    }
++    glass_params::markStaged(glass);
++
+     if (config.wallpaper.enabled) {
+       toml::table wallpaper;
+       if (!installedWallpaperName.empty()) {
+diff --git a/src/shell/lockscreen/lock_screen.cpp b/src/shell/lockscreen/lock_screen.cpp
+index 417c4d410..178afae92 100644
+--- a/src/shell/lockscreen/lock_screen.cpp
++++ b/src/shell/lockscreen/lock_screen.cpp
+@@ -1,4 +1,5 @@
+ #include "shell/lockscreen/lock_screen.h"
++#include "shell/render/glass_params.h"
+ 
+ #include "auth/fingerprint_authenticator.h"
+ #include "capture/screencopy_util.h"
+@@ -198,6 +199,8 @@ bool LockScreen::lock() {
+   if (isActive() || m_lockStarting) {
+     return true;
+   }
++  // The glass under the login box and widgets looks like Umbriel's window glass at lock time.
++  glass_params::reloadWindowGlass();
+   m_lockedAtMillis = bootTimeMillis();
+   m_graceAllowed = true;
+   kLog.debug("lock requested, grace starts at {}", m_lockedAtMillis);
+diff --git a/src/shell/lockscreen/lock_surface.cpp b/src/shell/lockscreen/lock_surface.cpp
+index 56cae96d6..b2a72fb24 100644
+--- a/src/shell/lockscreen/lock_surface.cpp
++++ b/src/shell/lockscreen/lock_surface.cpp
+@@ -16,6 +16,7 @@
+ #include "shell/lockscreen/lockscreen_transition_cover.h"
+ #include "shell/lockscreen/lockscreen_widgets_host.h"
+ #include "shell/render/blur_cache.h"
++#include "shell/render/liquid_glass_node.h"
+ #include "shell/render/wallpaper_node.h"
+ #include "shell/session/session_action_meta.h"
+ #include "shell/session/session_action_runner.h"
+@@ -154,6 +155,9 @@ namespace {
+     return formatStrftime("%Y-%m-%d", tm);
+   }
+ 
++  // How much of the login box's configured fill is kept as a tint over the glass.
++  constexpr float kGlassTintScale = 0.25F;
++
+ } // namespace
+ 
+ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) : Surface(connection), m_config(config) {
+@@ -188,6 +192,14 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
+     m_widgetLayer = m_root.addChild(std::move(widgetLayer));
+   }
+ 
++  // Liquid glass under the login box: same z-index, added first, so it draws right before it.
++  {
++    auto glass = std::make_unique<LiquidGlassNode>();
++    glass->setZIndex(2);
++    glass->setParticipatesInLayout(false);
++    m_loginGlass = static_cast<LiquidGlassNode*>(m_root.addChild(std::move(glass)));
++  }
++
+   m_root.addChild(
+       ui::flex(
+           FlexDirection::Vertical,
+@@ -494,6 +506,14 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
+     );
+   }
+ 
++  {
++    auto glass = std::make_unique<LiquidGlassNode>();
++    glass->setZIndex(7);
++    glass->setParticipatesInLayout(false);
++    glass->setVisible(false);
++    m_authGlass = static_cast<LiquidGlassNode*>(m_root.addChild(std::move(glass)));
++  }
++
+   // Auth panel is a sibling of the login panel (child of root), not a flex row inside it.
+   // It floats above (or below) the login box without affecting panel dimensions.
+   m_root.addChild(
+@@ -1219,6 +1239,8 @@ void LockSurface::layoutCoverOnly(std::uint32_t width, std::uint32_t height) {
+   m_backgroundLayer->setVisible(false);
+   m_widgetLayer->setVisible(false);
+   m_loginPanel->setVisible(false);
++  m_loginGlass->setVisible(false);
++  m_authGlass->setVisible(false);
+   m_authPanel->setVisible(false);
+   layoutTransitionCover();
+   syncTransitionCover();
+@@ -1355,6 +1377,8 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
+     );
+     m_widgetLayer->setVisible(false);
+     m_loginPanel->setVisible(false);
++    m_loginGlass->setVisible(false);
++    m_authGlass->setVisible(false);
+     m_passwordField->setVisible(false);
+     if (m_passwordRevealButton != nullptr) {
+       m_passwordRevealButton->setVisible(false);
+@@ -1465,8 +1489,12 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
+     }
+   }
+ 
+-  m_loginPanel->setFill(loginStyle.panelFill);
+-  m_loginPanel->setBorder(colorForRole(ColorRole::OutlineVariant, loginStyle.panelOpacity), Style::borderWidth);
++  // The panel itself stays clear: the glass under it draws the body, the tint and the rim.
++  const Color glassTint = resolveColorSpec(scaleAlpha(loginStyle.panelFill, kGlassTintScale));
++  m_loginPanel->setFill(rgba(0.0F, 0.0F, 0.0F, 0.0F));
++  m_loginPanel->setBorder(rgba(0.0F, 0.0F, 0.0F, 0.0F), 0.0F);
++  m_loginGlass->setTint(glassTint);
++  m_loginGlass->setRadius(Style::scaledRadius(loginStyle.panelRadius));
+   m_loginPanel->setRadius(Style::scaledRadius(loginStyle.panelRadius));
+   m_loginPanel->setSoftness(1.0F);
+   m_loginPanel->setClipChildren(true);
+@@ -1696,6 +1724,9 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
+   }
+ 
+   m_loginPanel->arrange(renderer, LayoutRect{panelX, panelY, panelWidth, panelHeight});
++  m_loginGlass->setVisible(loginVisible);
++  m_loginGlass->setPosition(panelX, panelY);
++  m_loginGlass->setSize(panelWidth, panelHeight);
+ 
+   // Auth panel: sibling above/below the login box (flips below when near the top edge).
+   if (m_authPanel != nullptr && m_authLabel != nullptr) {
+@@ -1703,6 +1734,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
+     const std::string authText = resolveStatusText(loginStyle, statusError);
+     const bool showAuth = m_locked && !m_blackout && loginVisible && !authText.empty();
+     m_authPanel->setVisible(showAuth);
++    m_authGlass->setVisible(showAuth);
+     m_authLabel->setVisible(showAuth);
+     if (showAuth) {
+       m_authLabel->setText(authText);
+@@ -1718,8 +1750,10 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
+       const float labelMaxW = std::max(0.0F, authW - authPadH * 2.0F);
+ 
+       m_authPanel->setPadding(authPadV, authPadH);
+-      m_authPanel->setFill(loginStyle.panelFill);
+-      m_authPanel->setBorder(colorForRole(ColorRole::OutlineVariant, loginStyle.panelOpacity), Style::borderWidth);
++      m_authPanel->setFill(rgba(0.0F, 0.0F, 0.0F, 0.0F));
++      m_authPanel->setBorder(rgba(0.0F, 0.0F, 0.0F, 0.0F), 0.0F);
++      m_authGlass->setTint(glassTint);
++      m_authGlass->setRadius(Style::scaledRadius(loginStyle.panelRadius));
+       m_authPanel->setRadius(Style::scaledRadius(loginStyle.panelRadius));
+       m_authPanel->setSoftness(1.0F);
+       m_authPanel->setMinWidth(authW);
+@@ -1744,6 +1778,8 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
+       const float authYBelow = panelY + panelHeight + authGap;
+       const float authY = (authYAbove >= Style::spaceLg) ? authYAbove : authYBelow;
+       m_authPanel->arrange(renderer, LayoutRect{authX, authY, authW, authH});
++      m_authGlass->setPosition(authX, authY);
++      m_authGlass->setSize(authW, authH);
+     }
+   }
+   layoutTransitionCover();
+@@ -1772,6 +1808,7 @@ void LockSurface::updateCopy() {
+     const std::string text = resolveStatusText(style, isError);
+     const bool show = m_locked && !m_blackout && !text.empty() && isLoginBoxEnabled();
+     m_authPanel->setVisible(show);
++    m_authGlass->setVisible(show);
+     m_authLabel->setVisible(show);
+     if (m_authGlyph != nullptr && (!show || isError || !m_securityKeyWaiting)) {
+       m_authGlyph->setVisible(false);
+diff --git a/src/shell/lockscreen/lock_surface.h b/src/shell/lockscreen/lock_surface.h
+index c311f9fe6..08619a287 100644
+--- a/src/shell/lockscreen/lock_surface.h
++++ b/src/shell/lockscreen/lock_surface.h
+@@ -48,6 +48,8 @@ struct SessionPanelActionConfig;
+ 
+ class LockscreenWidgetsHost;
+ 
++class LiquidGlassNode;
++
+ class LockSurface : public Surface {
+ public:
+   explicit LockSurface(WaylandConnection& connection, ConfigService* config = nullptr);
+@@ -175,6 +177,7 @@ private:
+   WallpaperNode* m_wallpaper = nullptr;
+   Box* m_tintOverlay = nullptr;
+   Box* m_backdrop = nullptr;
++  LiquidGlassNode* m_loginGlass = nullptr;
+   Flex* m_loginPanel = nullptr;
+   Flex* m_infoRow = nullptr;
+   Flex* m_mediaBlock = nullptr;
+@@ -195,6 +198,7 @@ private:
+   Label* m_weatherMeta = nullptr;
+   Flex* m_forecastRow = nullptr;
+   std::array<ForecastColumn, 5> m_forecastColumns{};
++  LiquidGlassNode* m_authGlass = nullptr;
+   Flex* m_authPanel = nullptr;
+   Label* m_authLabel = nullptr;
+   Glyph* m_authGlyph = nullptr;
+diff --git a/src/shell/lockscreen/lockscreen_widgets_host.cpp b/src/shell/lockscreen/lockscreen_widgets_host.cpp
+index 08e520f7c..b26ab7556 100644
+--- a/src/shell/lockscreen/lockscreen_widgets_host.cpp
++++ b/src/shell/lockscreen/lockscreen_widgets_host.cpp
+@@ -13,6 +13,7 @@
+ #include "wayland/wayland_connection.h"
+ 
+ #include <algorithm>
++#include <cmath>
+ #include <string>
+ 
+ namespace {
+@@ -235,6 +236,8 @@ void LockscreenWidgetsHost::createInstance(
+   }
+ 
+   widget->create();
++  // The glass assumes an axis-aligned box; rotated widgets keep their plain background.
++  widget->setGlass(std::abs(state.rotationRad) < 1e-4F);
+   widget->setBox(state.boxWidth, state.boxHeight);
+ 
+   if (surface.renderTarget().isReady()) {
+diff --git a/src/shell/render/glass_params.cpp b/src/shell/render/glass_params.cpp
+new file mode 100644
+index 000000000..d8a928a5f
+--- /dev/null
++++ b/src/shell/render/glass_params.cpp
+@@ -0,0 +1,149 @@
++#include "shell/render/glass_params.h"
++
++#include "config/toml.h"
++#include "core/log.h"
++
++#include <cmath>
++#include <cstdio>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <optional>
++#include <regex>
++#include <sstream>
++#include <utility>
++
++namespace glass_params {
++
++  namespace {
++
++    constexpr Logger kLog("glass");
++    constexpr const char* kPreset = "glass-window";
++
++    std::filesystem::path xdgDir(const char* variable, const char* fallback) {
++      const char* value = std::getenv(variable);
++      if (value != nullptr && value[0] == '/') {
++        return value;
++      }
++      const char* home = std::getenv("HOME");
++      return home != nullptr ? std::filesystem::path(home) / fallback : std::filesystem::path{};
++    }
++
++    std::optional<toml::table> parseIfPresent(const std::filesystem::path& path) {
++      std::error_code ec;
++      if (path.empty() || !std::filesystem::is_regular_file(path, ec)) {
++        return std::nullopt;
++      }
++      try {
++        return toml::parse_file(path.string());
++      } catch (const toml::parse_error& err) {
++        kLog.warn("{}: {}", path.string(), err.description());
++        return std::nullopt;
++      }
++    }
++
++    // Numbers of a params table (integers too: the tuner writes 4.0, people write 4).
++    void mergeNumbers(Values& into, const toml::table* table) {
++      if (table == nullptr) {
++        return;
++      }
++      for (const auto& [key, node] : *table) {
++        std::optional<double> value = node.value<double>();
++        if (value.has_value() && std::isfinite(*value)) {
++          into[std::string(key.str())] = *value;
++        }
++      }
++    }
++
++    // `#define NAME 1.5` lines of an Umbriel effect shader (its #ifndef defaults).
++    void mergeShaderDefaults(Values& into, const std::filesystem::path& shader) {
++      std::ifstream in(shader);
++      if (!in) {
++        kLog.warn("glass shader '{}' not readable; using built-in defaults", shader.string());
++        return;
++      }
++      static const std::regex define(R"(^\s*#define\s+([A-Z][A-Z0-9_]*)\s+(-?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\b)");
++      std::string line;
++      while (std::getline(in, line)) {
++        std::smatch m;
++        if (std::regex_search(line, m, define)) {
++          into[m[1].str()] = std::strtod(m[2].str().c_str(), nullptr);
++        }
++      }
++    }
++
++    const toml::table* paramsTable(const toml::table& root, std::string_view preset) {
++      return root["effects"]["params"][preset].as_table();
++    }
++
++    Values g_current;
++    std::uint64_t g_generation = 0;
++    std::optional<Values> g_staged;
++
++  } // namespace
++
++  Values loadWindowGlass() {
++    Values values;
++    const std::filesystem::path config = xdgDir("XDG_CONFIG_HOME", ".config") / "umbriel" / "glass.toml";
++    const std::optional<toml::table> glass = parseIfPresent(config);
++    if (!glass.has_value()) {
++      return values;
++    }
++    const toml::table* preset = (*glass)["effects"]["preset"][kPreset].as_table();
++    if (preset == nullptr) {
++      kLog.warn("{}: no [effects.preset.{}]", config.string(), kPreset);
++      return values;
++    }
++    if (const auto shader = (*preset)["shader"].value<std::string>()) {
++      std::filesystem::path path(*shader);
++      if (path.is_relative()) {
++        path = config.parent_path() / path;
++      }
++      mergeShaderDefaults(values, path);
++    }
++    mergeNumbers(values, (*preset)["params"].as_table());
++    mergeNumbers(values, paramsTable(*glass, kPreset));
++
++    const std::filesystem::path drafts = xdgDir("XDG_STATE_HOME", ".local/state") / "glass-tuner" / "umbriel.toml";
++    if (const std::optional<toml::table> draft = parseIfPresent(drafts)) {
++      mergeNumbers(values, paramsTable(*draft, kPreset));
++    }
++    return values;
++  }
++
++  void set(Values values) {
++    if (values == g_current) {
++      return;
++    }
++    g_current = std::move(values);
++    ++g_generation;
++  }
++
++  const Values& current() { return g_current; }
++
++  std::uint64_t generation() { return g_generation; }
++
++  bool reloadWindowGlass() {
++    const std::uint64_t before = g_generation;
++    set(loadWindowGlass());
++    if (g_generation != before) {
++      kLog.info("lock glass: {} values from Umbriel's {}", g_current.size(), kPreset);
++    }
++    return g_generation != before;
++  }
++
++  void markStaged(const Values& values) { g_staged = values; }
++
++  bool greeterOutOfDate() { return !g_staged.has_value() || *g_staged != g_current; }
++
++  std::string glslFloat(double value) {
++    char buf[64];
++    std::snprintf(buf, sizeof(buf), "%.9g", value);
++    std::string out(buf);
++    if (out.find_first_of(".eEn") == std::string::npos) {
++      out += ".0";
++    }
++    return out;
++  }
++
++} // namespace glass_params
+diff --git a/src/shell/render/glass_params.h b/src/shell/render/glass_params.h
+new file mode 100644
+index 000000000..981486e23
+--- /dev/null
++++ b/src/shell/render/glass_params.h
+@@ -0,0 +1,35 @@
++#pragma once
++
++#include <cstdint>
++#include <map>
++#include <string>
++
++// The liquid glass knobs (REFRACTION, WAVE_AMP, ...) of the lock screen glass, taken from
++// Umbriel's window glass so the lock looks like the windows: the defaults written in the
++// glass-window shader, then the preset's params in glass.toml, then [effects.params] there
++// and in the glass tuner's unsaved drafts. Empty when Umbriel's glass is not set up.
++namespace glass_params {
++
++  using Values = std::map<std::string, double>;
++
++  // Reads the files now. Missing or broken files give fewer (or no) values.
++  [[nodiscard]] Values loadWindowGlass();
++
++  // The values the glass shader is built with; generation() changes whenever they do.
++  void set(Values values);
++  [[nodiscard]] const Values& current();
++  [[nodiscard]] std::uint64_t generation();
++
++  // Loads the window glass and installs it; true when the values changed.
++  bool reloadWindowGlass();
++
++  // The greeter shows the window glass staged by the shell's greeter sync ([appearance.glass]).
++  // markStaged records what the last sync staged; greeterOutOfDate is true when the lock's
++  // values differ from that (or nothing was staged since the shell started).
++  void markStaged(const Values& values);
++  [[nodiscard]] bool greeterOutOfDate();
++
++  // A GLSL float literal ("93.0", "-0.25", "1e-05").
++  [[nodiscard]] std::string glslFloat(double value);
++
++} // namespace glass_params
+diff --git a/src/shell/render/liquid_glass_node.cpp b/src/shell/render/liquid_glass_node.cpp
+new file mode 100644
+index 000000000..3740d9dce
+--- /dev/null
++++ b/src/shell/render/liquid_glass_node.cpp
+@@ -0,0 +1,25 @@
++#include "shell/render/liquid_glass_node.h"
++
++#include "render/backend/render_backend.h"
++#include "shell/render/programs/liquid_glass_program.h"
++
++void LiquidGlassNode::draw(RenderBackend& backend, const CustomDrawContext& context) const {
++  auto& program = backend.extension<LiquidGlassProgram>();
++  program.ensureInitialized();
++  program.draw(
++      backend,
++      LiquidGlassProgram::Params{
++          .surfaceWidth = context.surfaceWidth,
++          .surfaceHeight = context.surfaceHeight,
++          .pixelScaleX = context.pixelScaleX,
++          .pixelScaleY = context.pixelScaleY,
++          .width = context.width,
++          .height = context.height,
++          .radius = m_radius,
++          .opacity = context.opacity,
++          .tint = rgba(m_tint.r * m_tint.a, m_tint.g * m_tint.a, m_tint.b * m_tint.a, m_tint.a),
++          .frostRadius = m_frostRadius,
++          .transform = context.transform,
++      }
++  );
++}
+diff --git a/src/shell/render/liquid_glass_node.h b/src/shell/render/liquid_glass_node.h
+new file mode 100644
+index 000000000..daf8c8587
+--- /dev/null
++++ b/src/shell/render/liquid_glass_node.h
+@@ -0,0 +1,41 @@
++#pragma once
++
++#include "render/core/color.h"
++#include "render/scene/custom_draw_node.h"
++
++// Liquid glass over what the scene has already drawn under this node's rounded rectangle.
++// Put it right before the panel it backs, in the same parent and z-index.
++class LiquidGlassNode : public CustomDrawNode {
++public:
++  void setRadius(float radius) {
++    if (m_radius == radius) {
++      return;
++    }
++    m_radius = radius;
++    markPaintDirty();
++  }
++
++  // Straight-alpha colour laid over the glass body.
++  void setTint(const Color& tint) {
++    if (m_tint == tint) {
++      return;
++    }
++    m_tint = tint;
++    markPaintDirty();
++  }
++
++  void setFrostRadius(float radius) {
++    if (m_frostRadius == radius) {
++      return;
++    }
++    m_frostRadius = radius;
++    markPaintDirty();
++  }
++
++  void draw(RenderBackend& backend, const CustomDrawContext& context) const override;
++
++private:
++  float m_radius = 0.0F;
++  float m_frostRadius = 10.0F;
++  Color m_tint = rgba(0.0F, 0.0F, 0.0F, 0.0F);
++};
+diff --git a/src/shell/render/programs/liquid_glass_program.cpp b/src/shell/render/programs/liquid_glass_program.cpp
+new file mode 100644
+index 000000000..efb8c659f
+--- /dev/null
++++ b/src/shell/render/programs/liquid_glass_program.cpp
+@@ -0,0 +1,600 @@
++#include "shell/render/programs/liquid_glass_program.h"
++
++#include "core/log.h"
++#include "shell/render/glass_params.h"
++
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cstdlib>
++#include <map>
++#include <regex>
++#include <stdexcept>
++#include <string>
++
++namespace {
++
++  constexpr char kVertexShaderSource[] = R"(
++precision highp float;
++
++attribute vec2 a_position;
++uniform vec2 u_surface_size;
++uniform vec2 u_size;
++uniform mat3 u_transform;
++varying vec2 v_local;
++
++vec2 to_ndc(vec2 pixel_pos) {
++    vec2 normalized = pixel_pos / u_surface_size;
++    return vec2(normalized.x * 2.0 - 1.0, 1.0 - normalized.y * 2.0);
++}
++
++void main() {
++    vec2 local = a_position * u_size;
++    vec3 pixel = u_transform * vec3(local, 1.0);
++    v_local = local;
++    gl_Position = vec4(to_ndc(pixel.xy), 0.0, 1.0);
++}
++)";
++
++  // Same glass as Umbriel's liquid-glass-lens.glsl: liquidglass.dev's refracting bevel (a rounded
++  // rim of height (1 - (1-s)^k)^(1/k), Snell's law at ior 1.5, so the edge shows the frost from
++  // further inside), a per-channel colour split, a faint white rim light, and kube.io's coloured rim
++  // (the bent frost, saturated, in the outer px). Distances are logical px; v_local is y-down.
++  constexpr char kFragmentShaderSource[] = R"(
++precision highp float;
++
++uniform sampler2D u_raw;
++uniform sampler2D u_frost;
++uniform vec4 u_region;   // copied region: origin and size in framebuffer px (y-up)
++uniform vec2 u_scale;    // framebuffer px per logical px
++uniform vec2 u_flip;     // -1 on an axis the node's transform mirrors
++uniform vec2 u_size;     // logical
++uniform float u_radius;  // logical
++uniform vec4 u_tint;     // premultiplied
++uniform float u_opacity;
++varying vec2 v_local;
++
++#ifndef REFRACTION
++#define REFRACTION 47.0 // [0..300 px] bend at the very edge, logical px
++#endif
++#ifndef BEZEL
++#define BEZEL 61.0 // [4..120 px] width of the curved rim, logical px
++#endif
++#ifndef CURVATURE
++#define CURVATURE 4.8 // [1.1..10] rim profile exponent: 2 circular, higher = steeper
++#endif
++#ifndef IOR
++#define IOR 2.12 // [1.05..3.0] index of refraction
++#endif
++#ifndef CHROMA
++#define CHROMA 0.8 // [0..1] blue bends (1 + CHROMA)x, green (1 + CHROMA/2)x as far as red
++#endif
++#ifndef SPECULAR
++#define SPECULAR 0.06 // [0..1] rim highlight strength
++#endif
++#ifndef SPECULAR_W
++#define SPECULAR_W 6.6 // [0.5..10 px] rim highlight width, px (glow reaches 5x this)
++#endif
++#ifndef LIGHT
++#define LIGHT 41.0 // [-180..180 deg] light direction, degrees; 0 = from the right, -90 = from the top
++#endif
++// Coloured rim as kube.io/blog/liquid-glass-css-svg builds it: in a thin rim,
++// lit on the side facing the light and the opposite side, the bent backdrop
++// is shown heavily saturated, with a faint white line over it.
++#ifndef RIM_OPACITY
++#define RIM_OPACITY 0.48 // [0..1] how much the rim shows (kube.io: 0.2 to 0.5)
++#endif
++#ifndef RIM_SATURATION
++#define RIM_SATURATION 3.5 // [0..15] saturation of the backdrop in the rim (kube.io: 4 to 9)
++#endif
++#ifndef RIM_WHITE
++#define RIM_WHITE 0.17 // [0..1] white over the rim, fraction of its opacity
++#endif
++#ifndef RIM_W
++#define RIM_W 4.6 // [0.5..10 px] rim width, px
++#endif
++#ifndef RIM_LIGHT
++#define RIM_LIGHT -53.0 // [-180..180 deg] rim light direction, degrees (kube.io default: up-right)
++#endif
++
++// Imperfections (off unless the window glass turns them on): the pane is not perfectly flat. A static height field fixed
++// to the surface bends the backdrop by its slope: soft waves (old window
++// glass) plus long streaks (cords in drawn glass). Values per part of the
++// desktop come from Umbriel's glass-window preset (glass_params.cpp), defined
++// ahead of this source; these are the fallbacks. The copied region is padded
++// for the flaws in LiquidGlassProgram::draw.
++#ifndef WAVE_AMP
++#define WAVE_AMP 0.0 // [0..8 px] soft waves: largest shift of the backdrop
++#endif
++#ifndef WAVE_SIZE
++#define WAVE_SIZE 220.0 // [20..800 px] size of one wave
++#endif
++#ifndef STREAK_AMP
++#define STREAK_AMP 0.0 // [0..8 px] streaks: largest shift across them
++#endif
++#ifndef STREAK_LEN
++#define STREAK_LEN 360.0 // [40..1500 px] length of a streak
++#endif
++#ifndef STREAK_W
++#define STREAK_W 22.0 // [4..120 px] width of a streak
++#endif
++#ifndef STREAK_ANGLE
++#define STREAK_ANGLE 0.0 // [-90..90 deg] streak direction; 0 = horizontal
++#endif
++#ifndef CENTER_FADE
++#define CENTER_FADE 0.3 // [0..1] how much weaker the flaws are away from the edge (keeps text readable)
++#endif
++#ifndef FADE_IN
++#define FADE_IN 120.0 // [0..600 px] distance from the edge over which they weaken
++#endif
++#ifndef SEED
++#define SEED 0.0 // [0..100] change for a different pattern
++#endif
++
++// == Ripple ==
++// Fine ripple, orange peel: like the waves, but small and crinkly. Gets the
++// lens colour fringe and the middle fade like the other flaws. 0 = off.
++#ifndef RIPPLE_AMP
++#define RIPPLE_AMP 0.0 // [0..3 px] fine ripple: largest shift (0.7 faint, 1.5 textured, 3 crinkled)
++#endif
++#ifndef RIPPLE_SIZE
++#define RIPPLE_SIZE 8.0 // [4..30 px] size of one ripple
++#endif
++
++// == Zones ==
++// Local magnify/shrink: soft round zones where the pane is a little thicker
++// or thinner, so the backdrop grows or shrinks by up to ZONE_PCT. 0 = off.
++#ifndef ZONE_PCT
++#define ZONE_PCT 0.0 // [0..6 %] how much a zone magnifies or shrinks
++#endif
++#ifndef ZONE_SIZE
++#define ZONE_SIZE 220.0 // [60..400 px] spacing of the zones (each is about a third as wide)
++#endif
++#ifndef ZONE_BIAS
++#define ZONE_BIAS 0.0 // [-1..1] 0 = mixed, 1 = magnify only, -1 = shrink only
++#endif
++#ifndef ZONE_CHROMA
++#define ZONE_CHROMA 0.2 // [0..1] colour fringe of the zones; 1 = as strong as the lens
++#endif
++
++// == Frost ==
++// Sandblasted frost (scatter + grain + milk) and uneven frost (patches where
++// the glass is clearer: the sharp backdrop shows through). 0 = off.
++#ifndef SAND_SCATTER
++#define SAND_SCATTER 0.0 // [0..4 px] sandblast: each pixel reads the backdrop from a random spot this near
++#endif
++#ifndef SAND_GRAIN
++#define SAND_GRAIN 0.0 // [0..0.08] sandblast: fixed light/dark grain
++#endif
++#ifndef MILK
++#define MILK 0.0 // [0..0.4] milky haze: lift towards white
++#endif
++#ifndef FROST_PATCH
++#define FROST_PATCH 0.0 // [0..1] uneven frost: how much clearer the clear patches are
++#endif
++#ifndef PATCH_SIZE
++#define PATCH_SIZE 140.0 // [20..600 px] uneven frost: size of a patch
++#endif
++
++// Texture coordinate of the fragment moved by o logical px (y-down).
++vec2 at(vec2 o) {
++    vec2 frag = gl_FragCoord.xy + vec2(o.x, -o.y) * u_flip * u_scale;
++    return (frag - u_region.xy) / u_region.zw;
++}
++
++float flawHash(vec2 i) {
++  i = fract(i * vec2(0.1031, 0.1030));
++  i += dot(i, i.yx + 33.33);
++  return fract((i.x + i.y) * i.x) * 2.0 - 1.0;
++}
++
++// Value noise with its analytic gradient: (value, d/dx, d/dy).
++vec3 flawNoise(vec2 x) {
++  vec2 i = floor(x);
++  vec2 f = fract(x);
++  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
++  vec2 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
++  float a = flawHash(i), b = flawHash(i + vec2(1.0, 0.0));
++  float c = flawHash(i + vec2(0.0, 1.0)), d = flawHash(i + vec2(1.0, 1.0));
++  float k = a - b - c + d;
++  return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y,
++              du * vec2(b - a + k * u.y, c - a + k * u.x));
++}
++
++// Shift of the backdrop in px at q (px in the surface), s px in from the edge.
++// The noise gradient peaks near 2.85 for two octaves, so AMP is about the max.
++vec2 imperfection(vec2 q, float s, float fadeIn) {
++  vec2 seed = vec2(SEED * 7.13, SEED * 3.71);
++  vec2 w = q / WAVE_SIZE + seed;
++  vec2 d = (flawNoise(w).yz + 0.5 * flawNoise(w * 2.03 + 17.0).yz) * (WAVE_AMP / 2.85);
++  float a = radians(STREAK_ANGLE);
++  vec2 ax = vec2(cos(a), sin(a));
++  vec2 ay = vec2(-ax.y, ax.x);
++  vec2 r = vec2(dot(q, ax) / STREAK_LEN, dot(q, ay) / STREAK_W) + seed + 41.0;
++  vec2 g = flawNoise(r).yz + 0.5 * flawNoise(r * vec2(1.7, 2.1) + 73.0).yz;
++  // A slope along a streak is STREAK_W / STREAK_LEN as steep as across it.
++  vec2 sl = vec2(g.x * STREAK_W / STREAK_LEN, g.y) * (STREAK_AMP / 2.85);
++  d += ax * sl.x + ay * sl.y;
++  if (RIPPLE_AMP > 0.0) {
++    vec2 rq = q / RIPPLE_SIZE + seed + 97.0;
++    d += (flawNoise(rq).yz + 0.5 * flawNoise(rq * 2.03 + 29.0).yz) * (RIPPLE_AMP / 2.85);
++  }
++  return d * (1.0 - CENTER_FADE * smoothstep(0.0, max(fadeIn, 0.001), s));
++}
++
++// Local magnify/shrink zones: a Gaussian bump per grid cell, centre jittered.
++vec2 zoneShift(vec2 q, float s, float fadeIn) {
++  if (ZONE_PCT <= 0.0) {
++    return vec2(0.0);
++  }
++  vec2 seed = vec2(SEED * 5.31, SEED * 2.17) + 151.0;
++  vec2 i0 = floor(q / ZONE_SIZE);
++  float sg = ZONE_SIZE * 0.35;
++  vec2 d = vec2(0.0);
++  for (int y = -1; y <= 1; y++) {
++    for (int x = -1; x <= 1; x++) {
++      vec2 i = i0 + vec2(float(x), float(y));
++      vec2 c = (i + 0.5 + 0.35 * vec2(flawHash(i + seed), flawHash(i + seed + 8.7))) * ZONE_SIZE;
++      float h = flawHash(i + seed + 13.3);
++      float k = clamp(sign(h) + 2.0 * ZONE_BIAS, -1.0, 1.0) * (0.6 + 0.4 * abs(h));
++      vec2 v = q - c;
++      d -= v * k * exp(-dot(v, v) / (2.0 * sg * sg));
++    }
++  }
++  return d * (ZONE_PCT / 100.0) * (1.0 - CENTER_FADE * smoothstep(0.0, max(fadeIn, 0.001), s));
++}
++
++vec2 capFlaw(vec2 f, float lim) {
++  return f * min(1.0, lim / max(length(f), 0.001));
++}
++
++// The glass body: the frost bent by the lens (lensOff, logical px) and the flaws (each
++// capped at lim px), with the frost variations on top. q: logical px in the box, s: px in
++// from the edge.
++vec3 glassBody(vec2 lensOff, vec2 q, float s, float lim) {
++    vec2 flaw = capFlaw(imperfection(q, s, FADE_IN), lim);
++    vec2 zone = capFlaw(zoneShift(q, s, FADE_IN), lim);
++    vec2 scat = vec2(0.0);
++    vec2 seed = vec2(SEED * 3.17, SEED * 6.29);
++    if (SAND_SCATTER > 0.0) {
++        vec2 jq = q / 1.3 + seed;
++        scat = capFlaw(vec2(flawNoise(jq + 211.0).x, flawNoise(jq + 307.0).x) * SAND_SCATTER, lim);
++    }
++    vec2 bent = lensOff + flaw;
++    vec3 col = vec3(texture2D(u_frost, at(bent + zone + scat)).r,
++                    texture2D(u_frost, at(bent * (1.0 + CHROMA * 0.5) + zone * (1.0 + ZONE_CHROMA * CHROMA * 0.5) + scat)).g,
++                    texture2D(u_frost, at(bent * (1.0 + CHROMA) + zone * (1.0 + ZONE_CHROMA * CHROMA) + scat)).b);
++    float frost = 1.0;
++    if (FROST_PATCH > 0.0) {
++        vec2 pq = q / PATCH_SIZE + seed + 401.0;
++        float v = flawNoise(pq).x + 0.5 * flawNoise(pq * 2.07 + 19.0).x;
++        frost = 1.0 - FROST_PATCH * smoothstep(-0.2, 0.6, v);
++        col = mix(texture2D(u_raw, at(bent + zone)).rgb, col, frost);
++    }
++    if (MILK > 0.0) {
++        col = mix(col, vec3(1.0), MILK * frost);
++    }
++    if (SAND_GRAIN > 0.0) {
++        col += flawHash(floor(q) + seed + 503.0) * SAND_GRAIN * frost;
++    }
++    return col;
++}
++
++float sdRoundBox(vec2 p, vec2 b, float r) {
++    vec2 q = abs(p) - b + r;
++    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
++}
++
++float profile(float s) {
++    if (s >= 1.0) {
++        return 0.0;
++    }
++    float a = pow(1.0 - s, CURVATURE);
++    float slope = pow(1.0 - s, CURVATURE - 1.0) * pow(max(1.0 - a, 1e-6), 1.0 / CURVATURE - 1.0);
++    float th = atan(slope);
++    return tan(th - asin(sin(th) / IOR)) / tan(1.5707963 - asin(1.0 / IOR));
++}
++
++void main() {
++    vec2 halfSize = u_size * 0.5;
++    vec2 p = v_local - halfSize;
++    float r = min(u_radius, min(halfSize.x, halfSize.y));
++    float d = sdRoundBox(p, halfSize, r);
++    float coverage = clamp(0.5 - d * max(u_scale.x, u_scale.y), 0.0, 1.0);
++    if (coverage <= 0.0) {
++        discard;
++    }
++    float s = max(-d, 0.0);
++
++    // The bend direction comes from the shape rounded to at least the bevel, so it turns
++    // smoothly round the corners (no seam along the corner diagonal).
++    float rn = min(max(r, min(BEZEL, min(halfSize.x, halfSize.y) * 0.5)), min(halfSize.x, halfSize.y));
++    float h = 3.0;
++    vec2 g = vec2(
++        sdRoundBox(p + vec2(h, 0.0), halfSize, rn) - sdRoundBox(p - vec2(h, 0.0), halfSize, rn),
++        sdRoundBox(p + vec2(0.0, h), halfSize, rn) - sdRoundBox(p - vec2(0.0, h), halfSize, rn));
++    vec2 n = length(g) > 0.0 ? normalize(g) : vec2(0.0);
++
++    float bezel = min(BEZEL, min(halfSize.x, halfSize.y) * 0.5);
++    float m = profile(s / bezel);
++    float px = min(m * REFRACTION, min(halfSize.x, halfSize.y) / (1.0 + CHROMA));
++    vec2 off = -n * px;
++    // Small boxes: the flaws never shift more than a tenth of the shorter half side.
++    vec3 col = glassBody(off, v_local, s, 0.1 * min(halfSize.x, halfSize.y));
++    col = col * (1.0 - u_tint.a) + u_tint.rgb;
++
++    float la = radians(LIGHT);
++    float facing = dot(n, vec2(cos(la), sin(la)));
++    float shade = 0.12 + 0.88 * (facing > 0.0 ? facing : -0.4 * facing);
++    float crisp = max(0.0, 1.0 - s / SPECULAR_W);
++    float glow = max(0.0, 1.0 - s / (SPECULAR_W * 5.0));
++    col += min(1.0, SPECULAR * (crisp * crisp + 0.3 * glow * glow) * shade);
++
++    float ra = radians(RIM_LIGHT);
++    float edgeW = max(0.0, 1.0 - s / RIM_W);
++    float rim = RIM_OPACITY * edgeW * edgeW * abs(dot(n, vec2(cos(ra), sin(ra))));
++    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
++    col = mix(col, max(mix(vec3(lum), col, RIM_SATURATION), 0.0), rim);
++    col = mix(col, vec3(1.0), rim * RIM_WHITE);
++
++    float alpha = coverage * u_opacity;
++    gl_FragColor = vec4(col * alpha, alpha);
++}
++)";
++
++  constexpr Logger kLog("glass");
++
++  // The knobs this shader has (its #ifndef defaults), by name.
++  const std::map<std::string, double>& shaderDefaults() {
++    static const std::map<std::string, double> defaults = [] {
++      std::map<std::string, double> out;
++      static const std::regex define(R"(#define\s+([A-Z][A-Z0-9_]*)\s+(-?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?))");
++      const std::string src(kFragmentShaderSource);
++      for (std::sregex_iterator it(src.begin(), src.end(), define), end; it != end; ++it) {
++        out[(*it)[1].str()] = std::strtod((*it)[2].str().c_str(), nullptr);
++      }
++      return out;
++    }();
++    return defaults;
++  }
++
++  // #defines ahead of the source for the window glass values this shader knows.
++  std::string prelude(const glass_params::Values& values) {
++    std::string out;
++    for (const auto& [name, value] : values) {
++      if (shaderDefaults().contains(name)) {
++        out += "#define " + name + " " + glass_params::glslFloat(value) + "\n";
++      }
++    }
++    return out;
++  }
++
++  double knob(const glass_params::Values& values, const std::string& name) {
++    if (const auto it = values.find(name); it != values.end() && shaderDefaults().contains(name)) {
++      return it->second;
++    }
++    const auto it = shaderDefaults().find(name);
++    return it != shaderDefaults().end() ? it->second : 0.0;
++  }
++
++  void setSampling(TextureId texture) {
++    glBindTexture(GL_TEXTURE_2D, texture.value());
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++  }
++
++} // namespace
++
++void LiquidGlassProgram::ensureInitialized() {
++  const std::uint64_t generation = glass_params::generation();
++  if (m_program.isValid() && m_builtGeneration == generation) {
++    return;
++  }
++  m_builtGeneration = generation;
++
++  glass_params::Values values = glass_params::current();
++  const std::string source = prelude(values) + kFragmentShaderSource;
++  try {
++    m_program.create(kVertexShaderSource, source.c_str());
++  } catch (const std::exception& err) {
++    kLog.warn("lock glass with the window values failed ({}); using the built-in glass", err.what());
++    values.clear();
++    m_program.create(kVertexShaderSource, kFragmentShaderSource);
++  }
++  // How far the flaws can read past the box (see draw): the shader's sums, per channel.
++  m_chroma = static_cast<float>(std::max(0.0, knob(values, "CHROMA")));
++  m_flawReach = static_cast<float>(
++      std::abs(knob(values, "WAVE_AMP")) + std::abs(knob(values, "STREAK_AMP")) + std::abs(knob(values, "RIPPLE_AMP"))
++  );
++  m_zoneReach = static_cast<float>(0.43 * knob(values, "ZONE_SIZE") * std::abs(knob(values, "ZONE_PCT")) / 100.0);
++  m_scatterReach = static_cast<float>(std::abs(knob(values, "SAND_SCATTER")));
++  m_zoneChroma = static_cast<float>(std::max(0.0, knob(values, "ZONE_CHROMA")));
++  const GLuint id = m_program.id();
++  m_positionLocation = glGetAttribLocation(id, "a_position");
++  m_surfaceSizeLocation = glGetUniformLocation(id, "u_surface_size");
++  m_sizeLocation = glGetUniformLocation(id, "u_size");
++  m_transformLocation = glGetUniformLocation(id, "u_transform");
++  // The lens samples only the frost, so the compiler may drop u_raw (-1: setting it is a no-op).
++  m_rawLocation = glGetUniformLocation(id, "u_raw");
++  m_frostLocation = glGetUniformLocation(id, "u_frost");
++  m_regionLocation = glGetUniformLocation(id, "u_region");
++  m_scaleLocation = glGetUniformLocation(id, "u_scale");
++  m_flipLocation = glGetUniformLocation(id, "u_flip");
++  m_radiusLocation = glGetUniformLocation(id, "u_radius");
++  m_tintLocation = glGetUniformLocation(id, "u_tint");
++  m_opacityLocation = glGetUniformLocation(id, "u_opacity");
++
++  if (m_positionLocation < 0
++      || m_surfaceSizeLocation < 0
++      || m_sizeLocation < 0
++      || m_transformLocation < 0
++      || m_frostLocation < 0
++      || m_regionLocation < 0
++      || m_scaleLocation < 0
++      || m_flipLocation < 0
++      || m_radiusLocation < 0
++      || m_tintLocation < 0
++      || m_opacityLocation < 0) {
++    throw std::runtime_error("failed to query liquid-glass shader locations");
++  }
++}
++
++void LiquidGlassProgram::destroy() {
++  m_program.destroy();
++  m_buffers = {};
++}
++
++void LiquidGlassProgram::abandon() noexcept {
++  m_program.abandon();
++  for (auto& set : m_buffers) {
++    for (auto* fb : {&set.raw, &set.scratch, &set.frost}) {
++      if (*fb) {
++        (*fb)->abandon();
++        fb->reset();
++      }
++    }
++    set = {};
++  }
++}
++
++LiquidGlassProgram::Buffers*
++LiquidGlassProgram::ensureBuffers(RenderBackend& backend, std::uint32_t width, std::uint32_t height) {
++  ++m_useCounter;
++  Buffers* oldest = &m_buffers[0];
++  for (auto& set : m_buffers) {
++    if (set.raw && set.width == width && set.height == height) {
++      set.lastUse = m_useCounter;
++      return &set;
++    }
++    if (set.lastUse < oldest->lastUse) {
++      oldest = &set;
++    }
++  }
++  Buffers& set = *oldest;
++  set = {};
++  set.raw = backend.createFramebuffer(width, height);
++  set.scratch = backend.createFramebuffer(width, height);
++  set.frost = backend.createFramebuffer(width, height);
++  if (!set.raw || !set.scratch || !set.frost || !set.raw->valid() || !set.scratch->valid() || !set.frost->valid()) {
++    set = {};
++    return nullptr;
++  }
++  for (const auto* fb : {set.raw.get(), set.scratch.get(), set.frost.get()}) {
++    setSampling(fb->colorTexture());
++  }
++  set.width = width;
++  set.height = height;
++  set.lastUse = m_useCounter;
++  return &set;
++}
++
++void LiquidGlassProgram::draw(RenderBackend& backend, const Params& params) {
++  if (!m_program.isValid() || params.width <= 0.0F || params.height <= 0.0F || params.opacity <= 0.0F) {
++    return;
++  }
++
++  // Everything below must leave GL as the scene renderer had it.
++  GLint prevFramebuffer = 0;
++  glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFramebuffer);
++  std::array<GLint, 4> viewport{};
++  glGetIntegerv(GL_VIEWPORT, viewport.data());
++  const bool scissorWasEnabled = glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
++  std::array<GLint, 4> scissorBox{};
++  glGetIntegerv(GL_SCISSOR_BOX, scissorBox.data());
++  const auto viewportW = static_cast<float>(viewport[2]);
++  const auto viewportH = static_cast<float>(viewport[3]);
++
++  // The rectangle in framebuffer px (y-up), padded so the frost and the fold read real pixels.
++  // Axis-aligned transforms only (translation, possibly mirrored); the caller skips rotations.
++  const Mat3& m = params.transform;
++  const float flipX = m.m[0] < 0.0F ? -1.0F : 1.0F;
++  const float flipY = m.m[4] < 0.0F ? -1.0F : 1.0F;
++  const float left = std::min(m.m[6], m.m[6] + m.m[0] * params.width);
++  const float top = std::min(m.m[7], m.m[7] + m.m[4] * params.height);
++  const float sx = params.pixelScaleX;
++  const float sy = params.pixelScaleY;
++  // The frost reads up to 24 px out; the flaws (each capped at a tenth of the shorter half
++  // side, as in the shader) can move a read further.
++  const float lim = 0.1F * 0.5F * std::min(params.width, params.height);
++  const float kPad = 24.0F + (1.0F + m_chroma) * std::min(lim, m_flawReach)
++      + (1.0F + m_zoneChroma * m_chroma) * std::min(lim, m_zoneReach) + std::min(lim, m_scatterReach);
++  const float x0 = std::clamp(std::floor((left - kPad) * sx), 0.0F, viewportW);
++  const float x1 = std::clamp(std::ceil((left + params.width + kPad) * sx), 0.0F, viewportW);
++  const float yTop = std::clamp(std::floor((top - kPad) * sy), 0.0F, viewportH);
++  const float yBottom = std::clamp(std::ceil((top + params.height + kPad) * sy), 0.0F, viewportH);
++  const auto regionW = static_cast<std::uint32_t>(x1 - x0);
++  const auto regionH = static_cast<std::uint32_t>(yBottom - yTop);
++  if (regionW == 0 || regionH == 0) {
++    return;
++  }
++  const float regionX = x0;
++  const float regionY = viewportH - yBottom;
++
++  Buffers* buffers = ensureBuffers(backend, regionW, regionH);
++  if (buffers == nullptr) {
++    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
++    return;
++  }
++
++  glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
++  glActiveTexture(GL_TEXTURE0);
++  glBindTexture(GL_TEXTURE_2D, buffers->raw->colorTexture().value());
++  glCopyTexSubImage2D(
++      GL_TEXTURE_2D, 0, 0, 0, static_cast<GLint>(regionX), static_cast<GLint>(regionY), static_cast<GLsizei>(regionW),
++      static_cast<GLsizei>(regionH)
++  );
++
++  backend.disableScissor();
++  backend.setBlendMode(RenderBlendMode::Disabled);
++  backend.setViewport(regionW, regionH);
++  const float frost = std::clamp(params.frostRadius * std::max(sx, sy), 0.0F, 20.0F);
++  TextureId source = buffers->raw->colorTexture();
++  for (int round = 0; round < 2; ++round) {
++    backend.bindFramebuffer(*buffers->scratch);
++    backend.drawFramebufferBlur(source, regionW, regionH, 1.0F, 0.0F, frost);
++    backend.bindFramebuffer(*buffers->frost);
++    backend.drawFramebufferBlur(buffers->scratch->colorTexture(), regionW, regionH, 0.0F, 1.0F, frost);
++    source = buffers->frost->colorTexture();
++  }
++
++  glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
++  backend.setViewport(static_cast<std::uint32_t>(viewport[2]), static_cast<std::uint32_t>(viewport[3]));
++  backend.setBlendMode(RenderBlendMode::PremultipliedAlpha);
++  if (scissorWasEnabled) {
++    backend.setScissor(RenderScissor{scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]});
++  }
++
++  const std::array<GLfloat, 12> vertices = {
++      0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F,
++  };
++
++  glUseProgram(m_program.id());
++  glUniform2f(m_surfaceSizeLocation, params.surfaceWidth, params.surfaceHeight);
++  glUniform2f(m_sizeLocation, params.width, params.height);
++  glUniformMatrix3fv(m_transformLocation, 1, GL_FALSE, params.transform.m.data());
++  glUniform4f(m_regionLocation, regionX, regionY, static_cast<float>(regionW), static_cast<float>(regionH));
++  glUniform2f(m_scaleLocation, sx, sy);
++  glUniform2f(m_flipLocation, flipX, flipY);
++  glUniform1f(m_radiusLocation, params.radius);
++  glUniform4f(m_tintLocation, params.tint.r, params.tint.g, params.tint.b, params.tint.a);
++  glUniform1f(m_opacityLocation, params.opacity);
++
++  glActiveTexture(GL_TEXTURE1);
++  glBindTexture(GL_TEXTURE_2D, buffers->frost->colorTexture().value());
++  glUniform1i(m_frostLocation, 1);
++  glActiveTexture(GL_TEXTURE0);
++  glBindTexture(GL_TEXTURE_2D, buffers->raw->colorTexture().value());
++  glUniform1i(m_rawLocation, 0);
++
++  const auto posAttr = static_cast<GLuint>(m_positionLocation);
++  glVertexAttribPointer(posAttr, 2, GL_FLOAT, GL_FALSE, 0, vertices.data());
++  glEnableVertexAttribArray(posAttr);
++  glDrawArrays(GL_TRIANGLES, 0, 6);
++  glDisableVertexAttribArray(posAttr);
++
++  glActiveTexture(GL_TEXTURE1);
++  glBindTexture(GL_TEXTURE_2D, 0);
++  glActiveTexture(GL_TEXTURE0);
++}
+diff --git a/src/shell/render/programs/liquid_glass_program.h b/src/shell/render/programs/liquid_glass_program.h
+new file mode 100644
+index 000000000..8dcc2e534
+--- /dev/null
++++ b/src/shell/render/programs/liquid_glass_program.h
+@@ -0,0 +1,79 @@
++#pragma once
++
++#include "render/backend/render_backend.h"
++#include "render/backend/render_extension.h"
++#include "render/core/mat3.h"
++#include "render/core/shader_program.h"
++
++#include <GLES2/gl2.h>
++#include <array>
++#include <cstdint>
++#include <memory>
++
++// Liquid glass over whatever is already drawn under a rounded rectangle: copies that region
++// of the bound framebuffer, frosts the copy, and draws it back bent at the rim (a port of the
++// Umbriel window lens shader in home/umbriel/effects/liquid-glass-lens.glsl). Its knobs,
++// imperfections included, come from Umbriel's glass-window preset via glass_params; the program is
++// rebuilt when those change.
++class LiquidGlassProgram final : public RenderExtension {
++public:
++  struct Params {
++    float surfaceWidth = 0.0F;
++    float surfaceHeight = 0.0F;
++    float pixelScaleX = 1.0F;
++    float pixelScaleY = 1.0F;
++    float width = 0.0F;
++    float height = 0.0F;
++    float radius = 0.0F;
++    float opacity = 1.0F;
++    // Premultiplied colour laid over the glass body.
++    Color tint = rgba(0.0F, 0.0F, 0.0F, 0.0F);
++    // Frost strength, logical px.
++    float frostRadius = 10.0F;
++    Mat3 transform = Mat3::identity();
++  };
++
++  void ensureInitialized();
++  void destroy() override;
++  void abandon() noexcept override;
++
++  void draw(RenderBackend& backend, const Params& params);
++
++private:
++  struct Buffers {
++    std::unique_ptr<RenderFramebuffer> raw;
++    std::unique_ptr<RenderFramebuffer> scratch;
++    std::unique_ptr<RenderFramebuffer> frost;
++    std::uint32_t width = 0;
++    std::uint32_t height = 0;
++    std::uint64_t lastUse = 0;
++  };
++
++  // A few panels of different sizes can share the program without reallocating every frame.
++  Buffers* ensureBuffers(RenderBackend& backend, std::uint32_t width, std::uint32_t height);
++
++  ShaderProgram m_program;
++  GLint m_positionLocation = -1;
++  GLint m_surfaceSizeLocation = -1;
++  GLint m_sizeLocation = -1;
++  GLint m_transformLocation = -1;
++  GLint m_rawLocation = -1;
++  GLint m_frostLocation = -1;
++  GLint m_regionLocation = -1;
++  GLint m_scaleLocation = -1;
++  GLint m_flipLocation = -1;
++  GLint m_radiusLocation = -1;
++  GLint m_tintLocation = -1;
++  GLint m_opacityLocation = -1;
++
++  // glass_params generation the program was built with, and the flaw reach it implies.
++  std::uint64_t m_builtGeneration = 0;
++  float m_chroma = 0.0F;
++  float m_zoneChroma = 0.0F;
++  float m_flawReach = 0.0F;
++  float m_zoneReach = 0.0F;
++  float m_scatterReach = 0.0F;
++
++  std::array<Buffers, 4> m_buffers;
++  std::uint64_t m_useCounter = 0;
++};

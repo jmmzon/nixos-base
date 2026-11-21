@@ -1,0 +1,400 @@
+diff --git a/src/config/config_types.h b/src/config/config_types.h
+index d7da22733..6be426153 100644
+--- a/src/config/config_types.h
++++ b/src/config/config_types.h
+@@ -187,6 +187,14 @@ struct BarConfig {
+   bool smartAutoHide = false;        // hide while the active workspace has windows; show when it is empty
+   bool autoHideReserveSpace = false; // with auto_hide/smart_auto_hide: reserve layout only while the bar is visible
+   bool showOnWorkspaceSwitch = true; // with auto_hide: briefly reveal when the active workspace changes
++  // OLED care: fade the whole bar (background, icons, text) to this opacity once the pointer has been
++  // away for idle_delay_ms and no bar popup or attached panel is open. 1.0 disables dimming.
++  float idleOpacity = 1.0F;
++  std::int32_t idleDelayMs = 3000;
++  // OLED care: drift the bar contents by up to this many pixels along the bar (1 across it), one
++  // step every few minutes. 0 disables the drift.
++  std::int32_t pixelShift = 0;
++  constexpr bool isIdleDimEnabled() const noexcept { return idleOpacity < 0.999F; }
+ 
+   constexpr bool isAutoHideEnabled() const noexcept { return autoHide || smartAutoHide; }
+   bool reserveSpace = true;  // reserve compositor exclusive zone; applies with or without auto_hide
+diff --git a/src/config/schema/config_schema.cpp b/src/config/schema/config_schema.cpp
+index 470cf1084..891c88a8d 100644
+--- a/src/config/schema/config_schema.cpp
++++ b/src/config/schema/config_schema.cpp
+@@ -2627,6 +2627,9 @@ namespace noctalia::config::schema {
+         field(&BarConfig::autoHideDelayMs, "auto_hide_delay_ms", kBarAutoHideDelayMsRange),
+         field(&BarConfig::smartAutoHide, "smart_auto_hide"),
+         field(&BarConfig::showOnWorkspaceSwitch, "show_on_workspace_switch"),
++        field(&BarConfig::idleOpacity, "idle_opacity", kUnitRange),
++        field(&BarConfig::idleDelayMs, "idle_delay_ms", kBarIdleDelayMsRange),
++        field(&BarConfig::pixelShift, "pixel_shift", kBarPixelShiftRange),
+         field(&BarConfig::reserveSpace, "reserve_space"),
+         field(&BarConfig::autoHideReserveSpace, "auto_hide_reserve_space"),
+         barLayerField(),
+diff --git a/src/config/schema/ranges.h b/src/config/schema/ranges.h
+index 61a148f65..6b20c68d8 100644
+--- a/src/config/schema/ranges.h
++++ b/src/config/schema/ranges.h
+@@ -36,6 +36,8 @@ namespace noctalia::config::schema {
+ 
+   // Bar.
+   inline constexpr Range<std::int64_t> kBarAutoHideDelayMsRange{0, 600000, 1000};
++  inline constexpr Range<std::int64_t> kBarIdleDelayMsRange{0, 600000, 500};
++  inline constexpr Range<std::int64_t> kBarPixelShiftRange{0, 4, 1};
+   inline constexpr Range<float> kBarFontScaleRange{0.2F, 2.5F, 0.01F};
+   inline constexpr Range<float> kBarCapsuleBorderWidthRange{0.0F, 8.0F, 0.5F};
+   inline constexpr Range<std::int64_t> kBarCapsuleAccordionMsRange{0, 2000, 25};
+diff --git a/src/shell/bar/bar.cpp b/src/shell/bar/bar.cpp
+index 37bb014c3..64d979a41 100644
+--- a/src/shell/bar/bar.cpp
++++ b/src/shell/bar/bar.cpp
+@@ -46,6 +46,26 @@ namespace {
+   constexpr std::chrono::milliseconds kWorkspaceRevealDebounce{80};
+   constexpr std::chrono::milliseconds kWorkspacePeekHold{450};
+   constexpr std::int32_t kAutoHideTriggerPx = 3;
++  // Idle dim: fade durations (wake is quick, dimming is slow so it reads as calm, not as a flash).
++  constexpr float kIdleDimWakeMs = 150.0F;
++  constexpr float kIdleDimFadeMs = 900.0F;
++  // Pixel shift: one step every few minutes; an 8-step loop along the bar and 1 px across it.
++  constexpr auto kPixelShiftInterval = std::chrono::minutes(3);
++  constexpr int kPixelShiftMain[8] = {0, 1, 2, 1, 0, -1, -2, -1};
++  constexpr int kPixelShiftCross[8] = {0, 0, 1, 1, 0, 0, -1, -1};
++
++  std::pair<float, float> pixelShiftOffset(const BarConfig& cfg, std::uint32_t step) noexcept {
++    const int amp = std::clamp(cfg.pixelShift, 0, 4);
++    if (amp == 0) {
++      return {0.0F, 0.0F};
++    }
++    const std::size_t i = step % 8U;
++    const int main = std::clamp(kPixelShiftMain[i] * amp / 2 + (amp == 1 ? kPixelShiftMain[i] % 2 : 0), -amp, amp);
++    const int cross = kPixelShiftCross[i];
++    const bool vertical = cfg.position == "left" || cfg.position == "right";
++    return vertical ? std::pair{static_cast<float>(cross), static_cast<float>(main)}
++                    : std::pair{static_cast<float>(main), static_cast<float>(cross)};
++  }
+   constexpr float kAutoHideSlideExtraPx = 4.0F;
+ 
+   std::string activeWorkspaceId(const std::vector<Workspace>& workspaces) {
+@@ -1835,6 +1855,15 @@ void Bar::applyPendingWorkspaceReveal() {
+   const auto pendingOutputs = std::move(m_pendingWorkspaceRevealOutputs);
+   m_pendingWorkspaceRevealOutputs.clear();
+ 
++  // Idle dim: a workspace switch brightens the bar on that output; it dims again after idle_delay_ms.
++  for (const std::uint32_t outputName : pendingOutputs) {
++    for (const auto& instanceUp : m_instances) {
++      if (instanceUp != nullptr && instanceUp->outputName == outputName && instanceUp->barConfig.enabled) {
++        wakeIdleDim(*instanceUp);
++      }
++    }
++  }
++
+   std::vector<BarInstance*> peeked;
+   peeked.reserve(m_instances.size());
+   for (const std::uint32_t outputName : pendingOutputs) {
+@@ -2017,7 +2046,7 @@ void Bar::setInstanceIpcVisible(BarInstance& instance, bool visible) {
+     return;
+   }
+   instance.animations.cancelForOwner(instance.slideRoot);
+-  instance.slideRoot->setOpacity(1.0F);
++  applyIdleDimOpacity(instance);
+   if (!visible) {
+     clearInstancePointerState(instance);
+   }
+@@ -2264,6 +2293,7 @@ bool Bar::isAttachedPanelBarSettled(wl_output* output, std::string_view barName)
+ void Bar::revealAutoHideForAttachedPanel(wl_output* output, std::string_view barName) {
+   BarInstance* instance = instanceForBar(output, barName);
+   if (instance != nullptr) {
++    wakeIdleDim(*instance);
+     revealAutoHideBar(*instance);
+   }
+ }
+@@ -2292,6 +2322,7 @@ void Bar::beginAttachedPopup(wl_surface* surface) {
+     return;
+   }
+   ++instance->attachedPopupCount;
++  wakeIdleDim(*instance);
+ }
+ 
+ void Bar::endAttachedPopup(wl_surface* surface) {
+@@ -3416,6 +3447,112 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
+   instance.surface->setBlurRegion(blurStrips);
+ }
+ 
++bool Bar::idleDimAwake(const BarInstance& instance) const {
++  if (instance.pointerInside || instance.attachedPopupCount > 0) {
++    return true;
++  }
++  return m_autoHideSuppressionCallback != nullptr && m_autoHideSuppressionCallback(instance);
++}
++
++void Bar::applyIdleDimOpacity(BarInstance& instance) const {
++  if (instance.slideRoot == nullptr) {
++    return;
++  }
++  instance.slideRoot->setOpacity(instance.barConfig.isIdleDimEnabled() ? instance.idleDim : 1.0F);
++}
++
++void Bar::animateIdleDim(BarInstance& instance, float target) {
++  instance.animations.cancelForOwner(&instance.idleDim);
++  if (std::abs(instance.idleDim - target) < 0.001F) {
++    instance.idleDim = target;
++    applyIdleDimOpacity(instance);
++    return;
++  }
++  const bool waking = target > instance.idleDim;
++  // animateTimer: the fade runs on its own clock, so it still finishes with reduced motion.
++  instance.animations.animateTimer(
++      instance.idleDim, target, waking ? kIdleDimWakeMs : kIdleDimFadeMs,
++      waking ? Easing::EaseOutCubic : Easing::EaseInOutQuad,
++      [this, inst = &instance](float v) {
++        inst->idleDim = v;
++        applyIdleDimOpacity(*inst);
++      },
++      {}, &instance.idleDim
++  );
++  if (instance.surface != nullptr) {
++    instance.surface->requestRedraw();
++  }
++}
++
++void Bar::wakeIdleDim(BarInstance& instance) {
++  if (!instance.barConfig.isIdleDimEnabled()) {
++    return;
++  }
++  animateIdleDim(instance, 1.0F);
++  scheduleIdleDim(instance);
++}
++
++void Bar::scheduleIdleDim(BarInstance& instance) {
++  instance.idleDimTimer.stop();
++  if (!instance.barConfig.isIdleDimEnabled()) {
++    instance.animations.cancelForOwner(&instance.idleDim);
++    instance.idleDim = 1.0F;
++    applyIdleDimOpacity(instance);
++    return;
++  }
++  const auto delay = std::chrono::milliseconds(std::max(instance.barConfig.idleDelayMs, 0));
++  instance.idleDimTimer.start(delay, [this, inst = &instance] {
++    // Still in use (hovered, a bar popup or its attached panel open): check again later. This also
++    // catches panels closing without a bar callback.
++    if (idleDimAwake(*inst)) {
++      scheduleIdleDim(*inst);
++      return;
++    }
++    animateIdleDim(*inst, std::clamp(inst->barConfig.idleOpacity, 0.0F, 1.0F));
++  });
++}
++
++void Bar::ensurePixelShiftTimer() {
++  const bool wanted = std::ranges::any_of(m_instances, [](const auto& inst) {
++    return inst != nullptr && inst->barConfig.pixelShift > 0;
++  });
++  if (!wanted || m_pixelShiftTimer.active()) {
++    return;
++  }
++  m_pixelShiftTimer.startRepeating(kPixelShiftInterval, [this] {
++    ++m_pixelShiftStep;
++    bool any = false;
++    for (const auto& instUp : m_instances) {
++      if (instUp == nullptr) {
++        continue;
++      }
++      auto& inst = *instUp;
++      const auto [dx, dy] = pixelShiftOffset(inst.barConfig, m_pixelShiftStep);
++      any = any || inst.barConfig.pixelShift > 0;
++      if (dx == inst.pixelShiftDx && dy == inst.pixelShiftDy) {
++        continue;
++      }
++      const float ddx = dx - inst.pixelShiftDx;
++      const float ddy = dy - inst.pixelShiftDy;
++      inst.pixelShiftDx = dx;
++      inst.pixelShiftDy = dy;
++      // Content and the hover-pill underlay move together, so pills stay on their widgets.
++      if (inst.contentClip != nullptr) {
++        inst.contentClip->setPosition(inst.contentClip->x() + ddx, inst.contentClip->y() + ddy);
++      }
++      if (inst.hoverUnderlay != nullptr) {
++        inst.hoverUnderlay->setPosition(dx, dy);
++      }
++      if (inst.surface != nullptr) {
++        inst.surface->requestLayout();
++      }
++    }
++    if (!any) {
++      m_pixelShiftTimer.stop();
++    }
++  });
++}
++
+ void Bar::startHideFadeOut(BarInstance& instance, bool immediate) {
+   if (instance.autoHideDisablePending || instance.smartAutoHidePinnedVisible) {
+     return;
+@@ -3536,6 +3673,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
+     auto hoverUnderlay = ui::node({});
+     hoverUnderlay->setHitTestVisible(false);
+     hoverUnderlay->setSize(static_cast<float>(w), static_cast<float>(h));
++    hoverUnderlay->setPosition(instance.pixelShiftDx, instance.pixelShiftDy);
+     instance.hoverUnderlay = instance.slideRoot->addChild(std::move(hoverUnderlay));
+ 
+     auto makeSlot = [&instance] {
+@@ -3587,15 +3725,21 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
+       instance.smartAutoHidePinnedVisible = smartAutoHideWantsPinnedVisible(*m_platform, instance.output);
+     }
+     if (barConfigUsesSlideSurface(instance.barConfig)) {
+-      instance.slideRoot->setOpacity(1.0F);
++      applyIdleDimOpacity(instance);
+       const bool startHidden =
+           instance.barConfig.smartAutoHide ? !instance.smartAutoHidePinnedVisible : instance.barConfig.autoHide;
+       instance.hideOpacity = startHidden ? 0.0F : 1.0F;
+     } else {
+-      instance.slideRoot->setOpacity(1.0F);
++      applyIdleDimOpacity(instance);
+       instance.hideOpacity = 1.0F;
+     }
+ 
++    // A (re)built bar starts bright and dims after idle_delay_ms.
++    instance.idleDim = 1.0F;
++    applyIdleDimOpacity(instance);
++    scheduleIdleDim(instance);
++    ensurePixelShiftTimer();
++
+     instance.surface->setSceneRoot(instance.sceneRoot.get());
+   }
+ 
+@@ -3639,7 +3783,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
+     }
+   });
+   if (instance.contentClip != nullptr) {
+-    instance.contentClip->setPosition(barAreaX, barAreaY);
++    instance.contentClip->setPosition(barAreaX + instance.pixelShiftDx, barAreaY + instance.pixelShiftDy);
+     instance.contentClip->setSize(barAreaW, barAreaH);
+   }
+ 
+@@ -3801,9 +3945,11 @@ bool Bar::onPointerEvent(const PointerEvent& event) {
+     case PointerEvent::Type::Enter:
+       m_hoveredInstance = targetInstance;
+       targetInstance->pointerInside = true;
++      wakeIdleDim(*targetInstance);
+       break;
+     case PointerEvent::Type::Leave:
+       targetInstance->pointerInside = false;
++      scheduleIdleDim(*targetInstance);
+       if (m_hoveredInstance == targetInstance) {
+         m_hoveredInstance = nullptr;
+       }
+@@ -3837,6 +3983,7 @@ bool Bar::onPointerEvent(const PointerEvent& event) {
+     entered->lastPointerSx = static_cast<float>(event.sx);
+     entered->lastPointerSy = static_cast<float>(event.sy);
+     entered->pointerInside = true;
++    wakeIdleDim(*entered);
+     entered->inputDispatcher.pointerEnter(static_cast<float>(event.sx), static_cast<float>(event.sy), event.serial);
+     // pointerEnter can re-enter the Wayland event loop (tooltip popup work),
+     // which may clear or change m_hoveredInstance before we dereference it.
+@@ -3851,6 +3998,7 @@ bool Bar::onPointerEvent(const PointerEvent& event) {
+   case PointerEvent::Type::Leave: {
+     if (m_hoveredInstance != nullptr) {
+       m_hoveredInstance->pointerInside = false;
++      scheduleIdleDim(*m_hoveredInstance);
+       m_hoveredInstance->inputDispatcher.pointerLeave();
+       updateAccordionExpansion(*m_hoveredInstance, nullptr);
+       updateWidgetPeek(*m_hoveredInstance, nullptr);
+@@ -4248,7 +4396,7 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
+     if (enabled || smart) {
+       applySurfaceSpec(instance);
+       if (instance.slideRoot != nullptr) {
+-        instance.slideRoot->setOpacity(1.0F);
++        applyIdleDimOpacity(instance);
+       }
+       const bool suppressAutoHide =
+           (m_autoHideSuppressionCallback != nullptr) ? m_autoHideSuppressionCallback(instance) : false;
+@@ -4293,7 +4441,7 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
+     instance.autoHideDisablePending = false;
+     instance.hideOpacity = 1.0F;
+     if (instance.slideRoot != nullptr) {
+-      instance.slideRoot->setOpacity(1.0F);
++      applyIdleDimOpacity(instance);
+     }
+     applySurfaceSpec(instance);
+     syncBarSlideLayerTransform(instance);
+diff --git a/src/shell/bar/bar.h b/src/shell/bar/bar.h
+index 9dfd3bb35..4d5bae3ac 100644
+--- a/src/shell/bar/bar.h
++++ b/src/shell/bar/bar.h
+@@ -162,6 +162,13 @@ private:
+   void applyPendingWorkspaceReveal();
+   void reevaluateSmartAutoHide();
+   void startHideFadeOut(BarInstance& instance, bool immediate = false);
++  // Idle dim (bar.idle_opacity / bar.pixel_shift).
++  bool idleDimAwake(const BarInstance& instance) const;
++  void applyIdleDimOpacity(BarInstance& instance) const;
++  void animateIdleDim(BarInstance& instance, float target);
++  void wakeIdleDim(BarInstance& instance);
++  void scheduleIdleDim(BarInstance& instance);
++  void ensurePixelShiftTimer();
+   static void applyBackgroundPalette(BarInstance& instance);
+   std::string showBarIpc(std::string_view args);
+   std::string hideBarIpc(std::string_view args);
+@@ -227,6 +234,8 @@ private:
+   noctalia::bar::WidgetActionDispatcher m_actionDispatcher;
+   Timer m_workspaceRevealDebounce;
+   Timer m_workspacePeekHideTimer;
++  Timer m_pixelShiftTimer;
++  std::uint32_t m_pixelShiftStep = 0;
+   std::unordered_set<std::uint32_t> m_pendingWorkspaceRevealOutputs;
+   std::unordered_map<std::uint32_t, std::string> m_lastActiveWorkspaceByOutput;
+   bool m_overlayDisplaySuppressed = false;
+diff --git a/src/shell/bar/bar_instance.h b/src/shell/bar/bar_instance.h
+index 8797bf77b..c6e8a579a 100644
+--- a/src/shell/bar/bar_instance.h
++++ b/src/shell/bar/bar_instance.h
+@@ -73,6 +73,13 @@ struct BarInstance {
+   noctalia::bar::WidgetActionBindings deadZoneBindings;
+   InputArea deadZoneAxisSink;
+   float hideOpacity = 1.0F;
++  // Idle dim (bar.idle_opacity): current fade factor applied to slideRoot's opacity, and the timer
++  // that dims the bar once it has been idle for idle_delay_ms.
++  float idleDim = 1.0F;
++  Timer idleDimTimer;
++  // bar.pixel_shift: current drift of contentClip and hoverUnderlay, in logical pixels.
++  float pixelShiftDx = 0.0F;
++  float pixelShiftDy = 0.0F;
+   // bar-hide/toggle IPC on non-autohide bars: release compositor exclusive zone until bar-show (v4 isVisible=false).
+   bool ipcLayoutReleased = false;
+   // bar-auto-hide-set off keeps autoHide true until the reveal completes; block hover helpers from replacing it.
+diff --git a/tests/config_schema_roundtrip_test.cpp b/tests/config_schema_roundtrip_test.cpp
+index ac1796fb1..967fbe914 100644
+--- a/tests/config_schema_roundtrip_test.cpp
++++ b/tests/config_schema_roundtrip_test.cpp
+@@ -1198,12 +1198,15 @@ font_scale = 1.5
+ font_weight = 600
+ hover_highlight = false
+ icon_color = "#0C0B0A"
++idle_delay_ms = 3000
++idle_opacity = 1.0
+ layer = "overlay"
+ margin_edge = 5
+ margin_ends = 100
+ margin_opposite_edge = 12
+ padding = 12
+ panel_overlap = 2
++pixel_shift = 0
+ position = "bottom"
+ radius = 18
+ radius_bottom_left = 8
+@@ -1264,6 +1267,8 @@ widget_spacing = 8
+     font_weight = 600
+     hover_highlight = true
+     icon_color = "#E3E2E1"
++    idle_delay_ms = 3000
++    idle_opacity = 1.0
+     layer = "top"
+     margin_edge = 9
+     margin_ends = "7%"
+@@ -1271,6 +1276,7 @@ widget_spacing = 8
+     match = "DP-1"
+     padding = 11
+     panel_overlap = -1
++    pixel_shift = 0
+     position = "top"
+     radius = 22
+     radius_bottom_left = 3

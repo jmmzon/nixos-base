@@ -1,0 +1,223 @@
+diff --git a/src/config/effects.cpp b/src/config/effects.cpp
+index 7bcab559..d8fc52ce 100644
+--- a/src/config/effects.cpp
++++ b/src/config/effects.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <cmath>
+ #include <cerrno>
+ #include <cstring>
+ #include <fcntl.h>
+@@ -213,4 +214,77 @@ namespace umbriel {
+     return std::nullopt;
+   }
+ 
++  namespace {
++    bool glslIdentifier(std::string_view name) {
++      if (name.empty() || name.starts_with("GL_") || name.starts_with("umbriel_")) {
++        return false;
++      }
++      const auto alpha = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
++      return alpha(name.front()) && std::ranges::all_of(name, [&](char c) { return alpha(c) || (c >= '0' && c <= '9'); });
++    }
++
++    // Whether `name` appears in `code` as a whole identifier.
++    bool mentions(std::string_view code, std::string_view name) {
++      const auto word = [](char c) {
++        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
++      };
++      for (size_t at = code.find(name); at != std::string_view::npos; at = code.find(name, at + 1)) {
++        const size_t end = at + name.size();
++        if ((at == 0 || !word(code[at - 1])) && (end == code.size() || !word(code[end]))) {
++          return true;
++        }
++      }
++      return false;
++    }
++
++    // GLSL ES 1.00 has no implicit int-to-float conversion, so every value is written as a float literal.
++    std::string floatLiteral(double value) {
++      std::string text = std::format("{}", value);
++      if (text.find_first_of(".e") == std::string::npos) {
++        text += ".0";
++      }
++      return text;
++    }
++  } // namespace
++
++  void readEffectParams(
++      Section& params, const std::string& shaderCode, std::vector<std::pair<std::string, double>>& target
++  ) {
++    params.freeform();
++    for (const auto& [key, node] : params.table()) {
++      const std::string_view name = key.str();
++      if (!glslIdentifier(name)) {
++        params.warn(node, std::format("ignoring {} (not a GLSL identifier)", params.qualified(name)));
++        continue;
++      }
++      const std::optional<double> value = node.is_number() ? node.value<double>() : std::nullopt;
++      if (!value || !std::isfinite(*value)) {
++        params.warn(node, std::format("ignoring {} (expected a finite number)", params.qualified(name)));
++        continue;
++      }
++      if (!shaderCode.empty() && !mentions(shaderCode, name)) {
++        params.warn(node, std::format("{}: the shader never mentions {}", params.qualified(name), name));
++      }
++      const auto existing = std::ranges::find(target, name, &std::pair<std::string, double>::first);
++      if (existing != target.end()) {
++        existing->second = *value;
++      } else {
++        target.emplace_back(std::string(name), *value);
++      }
++    }
++  }
++
++  std::string effectShaderCode(const EffectPreset& preset) {
++    if (preset.params.empty()) {
++      return preset.shader.code;
++    }
++    std::string code;
++    for (const auto& [name, value] : preset.params) {
++      code += std::format("#define {} {}\n", name, floatLiteral(value));
++    }
++    code += "#line 1\n";
++    code += preset.shader.code;
++    return code;
++  }
++
+ } // namespace umbriel
+diff --git a/src/config/effects.h b/src/config/effects.h
+index ba49502e..ba0170da 100644
+--- a/src/config/effects.h
++++ b/src/config/effects.h
+@@ -84,6 +84,9 @@ namespace umbriel {
+     std::string overlay = {}; // NOLINT(readability-redundant-member-init) border: names a window preset
+     std::optional<BorderLight> light = std::nullopt; // border
+     int radius = 0;                                  // cursor: 0-4096, 0 = whole output
++    // Shader constants, in declaration order: the preset's own `params`, then `[effects.params.<name>]` per key.
++    // Each becomes `#define NAME value` ahead of the shader source.
++    std::vector<std::pair<std::string, double>> params = {};
+     bool inert() const { return shader.code.empty(); }
+     bool operator==(const EffectPreset&) const = default;
+   };
+@@ -112,6 +115,11 @@ namespace umbriel {
+   };
+ 
+   const EffectPreset* findEffectPreset(const Effects& effects, std::string_view name);
++  // The source a preset compiles: its params as `#define`s, then `#line 1` and the shader text.
++  std::string effectShaderCode(const EffectPreset& preset);
++  // Reads a `params` table into `target` (overriding names already there). Warns about entries that are not
++  // GLSL-identifier = finite number, and about names the shader text never mentions.
++  void readEffectParams(Section& params, const std::string& shaderCode, std::vector<std::pair<std::string, double>>& target);
+   const EffectPool* findEffectPool(const Effects& effects, std::string_view name);
+   // Empty and, when allowOff, "off" are valid; other references must satisfy kind and constraint.
+   // Returns the diagnostic text on failure.
+diff --git a/src/config/fields_effects.cpp b/src/config/fields_effects.cpp
+index be351ebd..c2d3f9d0 100644
+--- a/src/config/fields_effects.cpp
++++ b/src/config/fields_effects.cpp
+@@ -91,6 +91,7 @@ namespace umbriel {
+           warnAt(declaration.source, "{} has no shader; the preset is inert", path);
+         }
+         keys.boolean("palette", preset.palette);
++        keys.sub("params", [&](Section& params) { readEffectParams(params, preset.shader.code, preset.params); });
+         // The preset moves into the vector; register the overlay reference by index after the push.
+         std::optional<std::pair<std::string, toml::source_region>> overlay;
+         switch (*kind) {
+@@ -139,6 +140,26 @@ namespace umbriel {
+       }
+     }
+ 
++    // `[effects.params.<preset>]` overrides a preset's params per key. It is a separate table so that another file
++    // (an include) can change a preset's params: a second `[effects.preset.<name>]` is a duplicate declaration.
++    void readEffectParamOverrides(Section& overrides, Effects& effects, registry::ReadContext& /*context*/) {
++      for (const auto& [key, node] : overrides.table()) {
++        const std::string name(key.str());
++        const auto* table = node.as_table();
++        if (table == nullptr) {
++          overrides.warn(node, std::format("ignoring effects.params.{} (expected table)", name));
++          continue;
++        }
++        auto preset = std::ranges::find(effects.presets, name, &EffectPreset::name);
++        if (preset == effects.presets.end()) {
++          overrides.warn(node, std::format("ignoring effects.params.{} (no preset named '{}')", name, name));
++          continue;
++        }
++        Section params(*table, "effects.params." + name, overrides.diagnostics());
++        readEffectParams(params, preset->shader.code, preset->params);
++      }
++    }
++
+     void readEffectPools(Section& pools, Effects& effects, registry::ReadContext& context) {
+       for (const auto& declaration : context.poolDeclarations) {
+         const std::string& name = declaration.name;
+@@ -250,9 +271,12 @@ namespace umbriel {
+                 add("light.intensity", KeyDescription("float").withRange(0.0, 4.0));
+                 add("light.threshold", KeyDescription("float").withRange(0.0, 1.0));
+                 add("radius", KeyDescription("int").withRange(0, 4096));
++                add("params", KeyDescription("table"));
+                 return keys;
+               }()
+           ),
++          // After "preset": overrides apply to presets already read.
++          registry::map<Effects>("params", KeyDescription("table"), readEffectParamOverrides),
+           registry::map<Effects>("pool", KeyDescription("table"), readEffectPools, [] {
+             registry::Descriptions keys;
+             auto kind = KeyDescription("enum").withValues({"border", "window", "screen", "cursor"});
+diff --git a/src/scene/effect_registry.cpp b/src/scene/effect_registry.cpp
+index 6c2dd8b9..111e1a29 100644
+--- a/src/scene/effect_registry.cpp
++++ b/src/scene/effect_registry.cpp
+@@ -214,11 +214,12 @@ vec4 animation(vec2 uv) {
+   void EffectRegistry::compile(const EffectPreset& preset) {
+     auto [slot, inserted] = m_programs.try_emplace(preset.name);
+     Entry& entry = slot->second;
+-    if (!inserted && entry.kind == preset.kind && entry.code == preset.shader.code) {
++    std::string code = effectShaderCode(preset);
++    if (!inserted && entry.kind == preset.kind && entry.code == code) {
+       return;
+     }
+     entry.kind = preset.kind;
+-    entry.code = preset.shader.code;
++    entry.code = std::move(code);
+     entry.shader.reset();
+     if (preset.inert()) {
+       return;
+@@ -226,7 +227,7 @@ vec4 animation(vec2 uv) {
+     const std::string label =
+         preset.shader.file.empty() ? "effects.preset." + preset.name : preset.shader.file.string();
+     entry.shader = {
+-        fx_effect_shader_create(m_renderer, toFxKind(preset.kind), preset.shader.code.c_str(), label.c_str()),
++        fx_effect_shader_create(m_renderer, toFxKind(preset.kind), entry.code.c_str(), label.c_str()),
+         fx_effect_shader_unref
+     };
+     if (entry.shader == nullptr) {
+@@ -370,7 +371,7 @@ vec4 animation(vec2 uv) {
+     const auto entry = m_programs.find(name);
+     if (entry == m_programs.end()
+         || entry->second.kind != configured->kind
+-        || entry->second.code != configured->shader.code) {
++        || entry->second.code != effectShaderCode(*configured)) {
+       return "unreferenced";
+     }
+     return entry->second.shader != nullptr ? "compiled" : "failed";
+diff --git a/tests/unit/effects.cpp b/tests/unit/effects.cpp
+index 0dafc5cf..d9cd771a 100644
+--- a/tests/unit/effects.cpp
++++ b/tests/unit/effects.cpp
+@@ -215,3 +215,13 @@ UMBRIEL_TEST(effectPoolPoliciesAndReferenceConstraintsAreExplicit) {
+ }
+ 
+ int main() { return RUN_TESTS(); }
++
++UMBRIEL_TEST(effectParamsBecomeFloatDefinesAheadOfTheShader) {
++  EffectPreset preset{.name = "glass", .kind = EffectKind::Backdrop, .shader = {.code = "body"}};
++  CHECK_EQ(umbriel::effectShaderCode(preset), std::string("body"));
++  preset.params = {{"WAVE_AMP", 4.0}, {"LIGHT", -53.0}, {"CHROMA", 0.35}};
++  CHECK_EQ(
++      umbriel::effectShaderCode(preset),
++      std::string("#define WAVE_AMP 4.0\n#define LIGHT -53.0\n#define CHROMA 0.35\n#line 1\nbody")
++  );
++}

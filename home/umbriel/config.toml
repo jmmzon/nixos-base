@@ -1,0 +1,321 @@
+# Umbriel keybindings.
+# Ctrl+Alt+Super chords are emitted by the existing xremap CapsLock layer.
+
+[general]
+# Noctalia is started by its systemd user service (graphical-session.target);
+# launching it here too made the unit fail as "already running".
+autostart = ["~/.local/bin/umbriel-scratchpad-hint"]
+
+[environment]
+QT_QPA_PLATFORMTHEME = "kde"
+
+[input.keyboard]
+layout = "pl"
+options = "lv3:ralt_switch"
+
+# Magic Trackpad, macOS-style (patched Umbriel: patches/umbriel-touchpad-gestures.patch):
+# three fingers drag, four-finger swipes scroll the strip and switch workspaces,
+# a four-finger pinch in/out opens/closes the overview.
+[input.touchpad]
+# Two-finger scrolling in apps at 0.3x speed (2026-11-10, by feel; 0.5 was still
+# too fast). Relative to adaptive-profile scrolling, which the scroll curve at
+# the end of accel_profile below restores.
+scroll_factor = 0.3
+# macOS-style pointer acceleration (2026-11-10). libinput custom curve for the
+# Magic Trackpad 2 (47 units/mm): step 0.75 units/ms (~16 mm/s), points in px/ms.
+# Gain in px per mm of finger travel: g(v) = 2.4 + 40 * x^1.7 / (1 + x^1.7),
+# x = v / 250 mm/s -> ~2.9 px/mm when slow (raised from 1.6/1.8: slow glides
+# felt too slow), ~9 at 100 mm/s, ~19 at 200 mm/s, ~37 at
+# 800 mm/s (a flick crosses the ultrawide). Replaces libinput's "adaptive";
+# `sensitivity` has no effect on a custom curve. "scroll 1 0 0.2238" (patched
+# Umbriel) is a flat scroll curve equal to libinput's adaptive touchpad scrolling
+# (0.9 * 0.2968 * 1000 / (47 * 25.4)); without it scrolling runs 1:1, ~4.5x faster.
+accel_profile = "custom 0.75 0.000 0.044 0.114 0.224 0.381 0.592 0.856 1.174 1.541 1.956 2.412 2.907 3.436 3.994 4.578 5.185 5.811 6.453 7.109 7.777 8.455 9.142 9.836 10.535 11.240 11.949 12.661 13.376 14.093 14.811 15.531 16.253 16.974 17.696 18.419 19.142 19.864 20.586 21.309 22.030 22.752 23.472 24.193 24.913 25.632 26.350 27.068 27.786 28.502 29.218 29.933 30.648 31.362 32.075 32.788 33.500 34.211 34.922 35.632 36.342 37.051 37.759 38.467 39.174 scroll 1 0 0.2238"
+three_finger_drag = true
+
+[input.cursor]
+theme = "capitaine-cursors"
+size = 32
+
+[workspaces]
+back_and_forth = true
+empty_above = true
+
+# Communicators get their own persistent workspace on the main monitor
+# (2026-11-10); Caps+M switches to it.
+[[workspace]]
+name = "chat"
+output = "DP-1"
+
+# Music and video players get the next one (2026-11-18); Caps+N switches to it.
+[[workspace]]
+name = "media"
+output = "DP-1"
+
+[output.DP-1]
+mode = "3440x1440@164.899994"
+position = [0, 0]
+hdr = "off"
+
+[appearance.blur]
+# Light frost with natural colour, matched against macOS glass; the backdrop
+# shader adds the lens, the milky lift and the edge line.
+# Unoptimized: every surface blurs what is really behind it (windows too), not
+# a cached wallpaper blur; costs GPU time while something behind changes.
+optimized = false
+radius = 3
+passes = 3
+noise = 0.0
+brightness = 1.0
+contrast = 1.0
+saturation = 1.1
+
+# Large, soft shadow falling straight down, as macOS draws it.
+[appearance.shadow]
+softness = 32
+offset_x = 0
+offset_y = 8
+
+# Tab groups show their bar along the bottom edge (user choice, 2026-11-19).
+[appearance.tab_bar]
+position = "bottom"
+
+[[layer_rule]]
+match.namespace = "^noctalia-(bar-[^\"]+|notification|dock|panel|attached-panel|osd)$"
+blur = true
+# Blur and glass only where Noctalia's pixels are at least this opaque: keeps
+# them off its fully transparent margins. At 0.05 its soft shadows count too
+# (chosen by eye, 2026-11-10). Must stay below the bar's and dock's
+# background_opacity (0.35 in home/noctalia/config.toml).
+blur_ignore_alpha = 0.05
+
+[[layer_rule]]
+match.namespace = "^vicinae$"
+blur = true
+# Vicinae draws its own shadow (client-side decorations); keep the blur (and
+# glass.toml's glass) off it. Must stay below Vicinae's launcher opacity
+# (home/appearance.nix).
+blur_ignore_alpha = 0.05
+
+[[window_rule]]
+blur = true
+# Qt menus, context menus, and combo boxes are descendant XDG popups rather
+# than toplevel windows, so they need this explicit opt-in.
+blur_popups = true
+
+[[window_rule]]
+match.app_id = "^(com\\.mitchellh\\.ghostty|dev\\.rockorager\\.monstar)$"
+# Glass (when on) comes from glass.toml; terminals get larger corners.
+window_effect = "off"
+corner_radius = 18
+# A hairline instead of the 2 px ring; glass.toml lights it like the glass rim.
+border_width = 1
+
+[[window_rule]]
+match.app_id = "^spotify$"
+# Slightly see-through, so the all-windows glass shows behind it. Fades the
+# whole window (text too), unlike the terminals' own background opacity.
+opacity = 0.98
+
+[[window_rule]]
+match.app_id = "^dev\\.rockorager\\.monstar$"
+# Open Monstar in a column a third of the output wide (it picks a narrow one
+# itself). Only a new column: a Monstar stacked into Strata's column keeps
+# Strata's width.
+default_scrolling_extent = 0.333
+
+[[window_rule]]
+match.app_id = "^(discord|com\\.rtosta\\.zapzap|signal)$"
+default_output = "DP-1"
+default_workspace = "chat"
+
+[[window_rule]]
+match.app_id = "^(spotify|spotifast|mpv|vlc|org\\.videolan\\.VLC|io\\.github\\.celluloid_player\\.Celluloid|org\\.kde\\.haruna)$"
+default_output = "DP-1"
+default_workspace = "media"
+
+# These destinations apply only while Sunshine's virtual monitor exists.
+[[window_rule]]
+match.app_id = "^steam$"
+match.title = "[Bb]ig [Pp]icture"
+default_output = "sunshine"
+default_fullscreen = true
+
+[[window_rule]]
+match.app_id = "^steam_app_"
+default_output = "sunshine"
+
+[keybinds]
+# Launchers and session controls
+"Super+Shift+F6" = { action = "spawn systemctl --user restart noctalia.service", repeat = false }
+"Ctrl+Alt+Super+Insert" = { action = "spawn ~/.local/bin/umbriel-hdr-toggle", repeat = false }
+"Ctrl+Alt+Super+Slash" = { action = "cheatsheet-toggle", repeat = false }
+"Ctrl+Alt+Super+Space" = { action = "spawn vicinae toggle", repeat = false }
+"Mod+Space" = { action = "spawn vicinae toggle", repeat = false }
+"Alt+Space" = { action = "spawn vicinae toggle", repeat = false }
+"Ctrl+Alt+Super+V" = { action = "spawn vicinae vicinae://launch/clipboard/history", repeat = false }
+"Ctrl+Alt+Shift+Super+V" = { action = "spawn vicinae cmd launch snippets:manage", repeat = false }
+"Ctrl+Alt+Super+O" = { action = "spawn vicinae cmd launch @mattisssa/store.raycast.spotify-player:search", repeat = false }
+"Ctrl+Alt+Super+Comma" = { action = "spawn noctalia msg settings-toggle", repeat = false }
+"Ctrl+Alt+Super+Escape" = { action = "spawn noctalia msg session logout", repeat = false }
+"Ctrl+Alt+Super+X" = { action = "spawn noctalia msg session lock", repeat = false }
+"Ctrl+Alt+Super+Return" = { action = "spawn helium", repeat = false }
+
+# CapsLock navigation and window management layer
+"Ctrl+Alt+Super+T" = "column-toggle-tabbed"
+"Ctrl+Alt+Super+W" = "window-focus-up"
+"Ctrl+Alt+Super+A" = "window-focus-left"
+"Ctrl+Alt+Super+S" = "window-focus-down"
+"Ctrl+Alt+Super+D" = "window-focus-right"
+"Ctrl+Alt+Shift+Super+W" = "window-move-up"
+"Ctrl+Alt+Shift+Super+A" = "column-move-left"
+"Ctrl+Alt+Shift+Super+S" = "window-move-down"
+"Ctrl+Alt+Shift+Super+D" = "column-move-right"
+# Pull the neighbouring window into the focused slot and focus it.
+"Ctrl+Alt+Super+H" = { action = "spawn sh -c 'umbriel msg window-focus-left && umbriel msg window-swap-right'", repeat = false }
+"Ctrl+Alt+Super+L" = { action = "spawn sh -c 'umbriel msg window-focus-right && umbriel msg window-swap-left'", repeat = false }
+"Ctrl+Alt+Super+Home" = "column-focus-first"
+"Ctrl+Alt+Super+End" = "column-focus-last"
+"Ctrl+Alt+Shift+Super+Home" = "column-move-to-first"
+"Ctrl+Alt+Shift+Super+End" = "column-move-to-last"
+"Ctrl+Alt+Super+Page_Up" = "workspace-previous"
+"Ctrl+Alt+Super+Page_Down" = "workspace-next"
+"Ctrl+Alt+Shift+Super+Page_Up" = "window-move-to-workspace-previous"
+"Ctrl+Alt+Shift+Super+Page_Down" = "window-move-to-workspace-next"
+"Ctrl+Alt+Super+Q" = { action = "spawn ~/.local/bin/umbriel-caps-q", repeat = false }
+"XF86Tools" = { action = "window-focus-right", cooldown_ms = 50 }
+"XF86Launch5" = { action = "window-focus-left", cooldown_ms = 50 }
+"Ctrl+Alt+Super+C" = "column-center"
+"Ctrl+Alt+Super+R" = "window-cycle-primary-extent"
+"Ctrl+Alt+Shift+Super+R" = "window-cycle-primary-extent-back"
+"Ctrl+Alt+Super+F" = { action = "spawn sh -c 'umbriel msg window-toggle-maximize && sleep 0.3 && umbriel msg column-center'", repeat = false }
+"Ctrl+Alt+Super+G" = "window-toggle-fullscreen"
+"Ctrl+Alt+Super+E" = "window-set-primary-extent 1.0"
+"Ctrl+Alt+Super+B" = "window-toggle-floating"
+# Caps+P pins the focused window: floats above and shows on every workspace of
+# its output. (Caps+F8 is Play/Pause in xremap.)
+"Ctrl+Alt+Super+P" = { action = "window-toggle-pinned", repeat = false }
+"Ctrl+Alt+Super+BracketLeft" = "window-consume-or-expel-left"
+"Ctrl+Alt+Super+BracketRight" = "window-consume-or-expel-right"
+"Ctrl+Alt+Super+Z" = "workspace-previous"
+"Ctrl+Alt+Super+Period" = "column-move-to-workspace-next"
+# Caps+0 shows/hides the scratchpad; Caps+Super+0 stores the focused window.
+"Ctrl+Alt+Super+0" = { action = "scratchpad-toggle", repeat = false }
+"Ctrl+Alt+Shift+Super+0" = { action = "window-move-to-scratchpad", repeat = false }
+
+# Meta+0 enters scratchpad mode; release Meta before the mode keys.
+"Mod+0" = { action = "submap scratchpad", repeat = false }
+"submap[scratchpad],A" = "scratchpad-window-show-previous"
+"submap[scratchpad],Left" = "scratchpad-window-show-previous"
+"submap[scratchpad],D" = "scratchpad-window-show-next"
+"submap[scratchpad],Right" = "scratchpad-window-show-next"
+"submap[scratchpad],M" = { action = "window-move-to-scratchpad", submap = "reset", repeat = false }
+"submap[scratchpad],R" = { action = "window-restore-from-scratchpad", submap = "reset", repeat = false }
+"submap[scratchpad],Space" = { action = "scratchpad-toggle", submap = "reset", repeat = false }
+"submap[scratchpad],Escape" = { action = "submap reset", repeat = false }
+
+"Ctrl+Alt+Super+1" = "workspace-switch 1"
+"Ctrl+Alt+Super+2" = "workspace-switch 2"
+"Ctrl+Alt+Super+3" = "workspace-switch 3"
+"Ctrl+Alt+Super+4" = "workspace-switch 4"
+"Ctrl+Alt+Super+5" = "workspace-switch 5"
+"Ctrl+Alt+Super+6" = "workspace-switch 6"
+"Ctrl+Alt+Super+7" = "workspace-switch 7"
+"Ctrl+Alt+Super+8" = "workspace-switch 8"
+"Ctrl+Alt+Super+9" = "workspace-switch 9"
+"Ctrl+Alt+Super+M" = "workspace-switch chat --output DP-1"
+"Ctrl+Alt+Shift+Super+M" = "window-move-to-workspace chat --output DP-1"
+"Ctrl+Alt+Super+N" = "workspace-switch media --output DP-1"
+"Ctrl+Alt+Shift+Super+N" = "window-move-to-workspace media --output DP-1"
+"Ctrl+Alt+Super+Grave" = "overview-toggle"
+"Ctrl+Alt+Super+Tab" = "workspace-focus-last"
+
+# Standard window navigation
+"Mod+Shift+Slash" = { action = "cheatsheet-toggle", repeat = false }
+"Mod+H" = "window-focus-left"
+"Mod+Ctrl+H" = "column-move-left"
+"Mod+Ctrl+J" = "window-move-down"
+"Mod+Ctrl+K" = "window-move-up"
+"Mod+Ctrl+Home" = "column-move-to-first"
+"Mod+Ctrl+End" = "column-move-to-last"
+"Mod+Shift+Ctrl+Left" = "column-move-to-output-left"
+"Mod+Shift+Ctrl+Down" = "column-move-to-output-down"
+"Mod+Shift+Ctrl+Up" = "column-move-to-output-up"
+"Mod+Shift+Ctrl+Right" = "column-move-to-output-right"
+"Mod+Shift+Ctrl+H" = "column-move-to-output-left"
+"Mod+Shift+Ctrl+J" = "column-move-to-output-down"
+"Mod+Shift+Ctrl+K" = "column-move-to-output-up"
+"Mod+Shift+Ctrl+L" = "column-move-to-output-right"
+
+# Workspace navigation and moving columns
+"Mod+Ctrl+Page_Down" = "column-move-to-workspace-next"
+"Mod+Ctrl+Page_Up" = "column-move-to-workspace-previous"
+"Mod+Ctrl+U" = "column-move-to-workspace-next"
+"Mod+Shift+Page_Down" = "workspace-move-down"
+"Mod+Shift+Page_Up" = "workspace-move-up"
+"Mod+WheelDown" = { action = "window-focus-next", cooldown_ms = 150 }
+"Mod+WheelUp" = { action = "window-focus-previous", cooldown_ms = 150 }
+"Mod+Ctrl+WheelDown" = { action = "column-move-to-workspace-next", cooldown_ms = 150 }
+"Mod+Ctrl+WheelUp" = { action = "column-move-to-workspace-previous", cooldown_ms = 150 }
+"Mod+WheelRight" = { action = "workspace-next", cooldown_ms = 150 }
+"Mod+WheelLeft" = { action = "workspace-previous", cooldown_ms = 150 }
+"Mod+Ctrl+WheelRight" = "column-move-right"
+"Mod+Ctrl+WheelLeft" = "column-move-left"
+"Mod+Shift+WheelDown" = "window-focus-right"
+"Mod+Shift+WheelUp" = "window-focus-left"
+"Mod+Ctrl+Shift+WheelDown" = "column-move-right"
+"Mod+Ctrl+Shift+WheelUp" = "column-move-left"
+"Mod+2" = "workspace-switch 2"
+"Mod+3" = "workspace-switch 3"
+"Mod+4" = "workspace-switch 4"
+"Mod+8" = "workspace-switch 8"
+"Mod+9" = "workspace-switch 9"
+"Mod+Ctrl+1" = "column-move-to-workspace 1"
+"Mod+Ctrl+2" = "column-move-to-workspace 2"
+"Mod+Ctrl+3" = "column-move-to-workspace 3"
+"Mod+Ctrl+4" = "column-move-to-workspace 4"
+"Mod+Ctrl+5" = "column-move-to-workspace 5"
+"Mod+Ctrl+6" = "column-move-to-workspace 6"
+"Mod+Ctrl+7" = "column-move-to-workspace 7"
+"Mod+Ctrl+8" = "column-move-to-workspace 8"
+"Mod+Ctrl+9" = "column-move-to-workspace 9"
+
+# Column layout and window sizing
+"Mod+Ctrl+Shift+R" = "window-cycle-secondary-extent"
+"Mod+Ctrl+R" = "window-set-secondary-extent 0.5"
+"Mod+M" = "window-toggle-maximize-to-edges"
+"Mod+Minus" = "window-modify-primary-extent -0.1"
+"Mod+Shift+Minus" = "window-modify-secondary-extent -0.1"
+"Mod+Shift+Equal" = "window-modify-secondary-extent 0.1"
+
+# Session, screenshots, media, volume, and brightness
+"Mod+Shift+Escape" = { action = "shortcuts-inhibit-toggle", allow_when_inhibited = true, repeat = false }
+"Ctrl+Alt+Delete" = { action = "session-quit", repeat = false }
+"Print" = { action = "spawn noctalia msg screenshot-region", repeat = false }
+"Ctrl+Print" = { action = "spawn noctalia msg screenshot-fullscreen", repeat = false }
+"Alt+Print" = { action = "spawn ~/.local/bin/umbriel-screenshot-window", repeat = false }
+"XF86AudioRaiseVolume" = { action = "spawn wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.1+ -l 1.0", allow_when_locked = true }
+"XF86AudioLowerVolume" = { action = "spawn wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.1-", allow_when_locked = true }
+"XF86AudioMute" = { action = "spawn wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle", allow_when_locked = true, repeat = false }
+"XF86AudioMicMute" = { action = "spawn wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle", allow_when_locked = true, repeat = false }
+"XF86AudioPlay" = { action = "spawn playerctl play-pause", allow_when_locked = true }
+"XF86AudioStop" = { action = "spawn playerctl stop", allow_when_locked = true }
+"XF86AudioPrev" = { action = "spawn playerctl previous", allow_when_locked = true }
+"XF86AudioNext" = { action = "spawn playerctl next", allow_when_locked = true }
+"XF86MonBrightnessUp" = { action = "spawn brightnessctl --class=backlight set +10%", allow_when_locked = true }
+"XF86MonBrightnessDown" = { action = "spawn brightnessctl --class=backlight set 10%-", allow_when_locked = true }
+
+# Noctalia renders its theme to the writable ~/.config/umbriel/noctalia.toml.
+# Its apply.sh hook moves "noctalia.toml" to the end of this list on every
+# theme apply, and a live copy of this file (my.flakePath) would be edited
+# behind your back: keep it last so
+# the hook is a no-op (SYS-124; nix flake check, eval-umbriel-include-order,
+# enforces it). Add new includes before it. glass.toml is the
+# liquid glass, linked beside this file only with my.liquidGlass.enable
+# (modules/umbriel.nix); without it windows and panels keep plain blur.
+# The glass tuner's drafts (glass-tune, apps/glass-tuner) come right after
+# glass.toml: unsaved glass values, shown live until saved or discarded. The
+# file exists only while there are drafts. erebor-modes writes the next one
+# while a mode turns the glass off (power-saver, modules/erebor-modes.nix).
+[include.optional]
+files = ["glass.toml", "~/.local/state/glass-tuner/umbriel.toml", "~/.local/state/erebor-modes/umbriel.toml", "noctalia.toml"]

@@ -1,0 +1,177 @@
+# Liquid glass: Umbriel's effect presets and the rules that use them. Included
+# (optionally) by config.toml and linked as ~/.config/umbriel/glass.toml only
+# with my.liquidGlass.enable (modules/umbriel.nix). Included files apply
+# before config.toml, so its rules for the same windows still win on any field
+# they also set. Needs the patched Umbriel ("backdrop" effect kind).
+
+# Lens edge for the translucent terminals (both already use appOpacity).
+[effects.preset.liquid-glass]
+kind = "window"
+# Relative shader paths resolve beside the ~/.config/umbriel/glass.toml link:
+# modules/umbriel.nix links the store copy of effects/ there when
+# my.flakePath is null. A live checkout copy of this file may point at its
+# own effects/ instead (absolute paths).
+shader = "effects/liquid-glass.glsl"
+
+# Glass under the window (patched Umbriel: patches/umbriel-backdrop-effect.patch).
+# padding: how far past the window edge the shader may read the backdrop (the
+# fold reads inward only; 8 px covers the blur at the edge).
+[effects.preset.liquid-glass-backdrop]
+kind = "backdrop"
+shader = "effects/liquid-glass-backdrop.glsl"
+padding = 8
+
+# Alternative glass under the window: liquidglass.dev's refracting lens rim
+# (a 42 px bevel bending up to 60 px inward, colour fringe, faint rim light)
+# instead of the mirrored fold. To try it, set the catch-all window_rule
+# below to backdrop_effect = "liquid-glass-lens".
+# padding must cover the farthest read in ANY direction, inward too: it is also
+# how far a partial redraw is grown around damage. The lens bends inward up to
+# REFRACTION * (1 + CHROMA) px (47 * 1.8 = 85); with only 8, a redraw near the
+# edge (a blinking cursor, a hover) let the rim refract last frame's window
+# content and flicker. Raise it if the shader's constants grow.
+[effects.preset.liquid-glass-lens]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens.glsl"
+padding = 88
+
+# Glass only in the shapes a client names over umbriel_glass_v1
+# (patches/umbriel-glass-regions.patch): same optics and constants as
+# liquid-glass-lens, per shape. Without shapes it draws nothing.
+[effects.preset.liquid-glass-lens-regions]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens-regions.glsl"
+padding = 88
+
+# Glass body for Noctalia's surfaces (layer shapes are unknown, so no rim).
+[effects.preset.liquid-glass-layer]
+kind = "backdrop"
+shader = "effects/liquid-glass-layer.glsl"
+padding = 8
+
+[effects.preset.liquid-glass-rim]
+kind = "border"
+shader = "effects/liquid-glass-rim.glsl"
+
+# ---------------------------------------------------------------------------
+# Glass per part of the desktop (since 2026-11-16). Each preset shares one of
+# the lens shaders and sets its own constants in `params` (patched Umbriel:
+# patches/umbriel-effect-params.patch turns each into a #define; anything not
+# listed keeps the shader's default, documented at the top of the shader).
+# Another file can override them per key in [effects.params.<preset>].
+# padding must cover (REFRACTION + WAVE_AMP + STREAK_AMP) * (1 + CHROMA) at the
+# sliders' maximum of 8 px each: windows (47 + 16) * 1.8 = 113, layers
+# (60 + 16) * 1.88 = 143. Flaws: WAVE_* soft waves, STREAK_* drawn-glass
+# streaks, CENTER_FADE/FADE_IN weaken them away from the edge for text.
+# Off by default, +20 px on every glass-* padding for them: RIPPLE_* fine
+# ripple (3 * 2 = 6), ZONE_* local magnify/shrink (0.21 * 400 * 6 % * 2 = 10),
+# SAND_SCATTER (4); SAND_GRAIN, MILK and FROST_PATCH read nothing further.
+# The old liquid-glass-* presets above and below are kept for reverting.
+
+# glass-bar and glass-vicinae: padding 256, since the tuned REFRACTION (131 and
+# 172) needs (REFRACTION + WAVE_AMP + STREAK_AMP) * (1 + CHROMA) = 251 and 241.
+# Noctalia bar: thin, so small flaws (the shader also caps them at a tenth of
+# the capsule's thickness).
+[effects.preset.glass-bar]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens-layer.glsl"
+padding = 276
+params = { WAVE_AMP = 2.0, STREAK_AMP = 8.0, CENTER_FADE = 0.0, STREAK_LEN = 312.203, STREAK_W = 12.0, STREAK_ANGLE = -71.5042, WAVE_SIZE = 185.254, SPECULAR = 0.584746, SPECULAR_W = 5.89407, CHROMA = 0.75, CURVATURE = 4.53178, REFRACTION = 129.661, LIGHT = 134.237, RIM_SATURATION = 8.96186, RIM_OPACITY = 0.4, RIM_WHITE = 0.538136, BEZEL = 21.2034, RIPPLE_AMP = 2.33898, RIPPLE_SIZE = 12.7034, SEED = 9.0, IOR = 3.0, RIM_W = 4.20339, LIGHT_OUT = 5.42373, ZONE_CHROMA = 0.110169, ZONE_BIAS = -0.669492, ZONE_PCT = 5.11017, SAND_SCATTER = 2.84746, SAND_GRAIN = 0.0183051, COVER_HI = 1.0, COVER_LO = 0.788983, FROST_PATCH = 0.0805085, PATCH_SIZE = 265.763 }
+
+[effects.preset.glass-dock]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens-layer.glsl"
+padding = 164
+params = { WAVE_AMP = 4.44068, STREAK_AMP = 5.83051, CENTER_FADE = 0.0, CHROMA = 0.487288, CURVATURE = 3.13644, IOR = 1.91, REFRACTION = 94.0678, SPECULAR = 0.334746, WAVE_SIZE = 800.0, COVER_HI = 1.0, COVER_LO = 0.107966, LIGHT = -115.0, REACH = 57.5763, RIM_OPACITY = 1.0, RIM_SATURATION = 15.0, RIM_WHITE = 0.538136, SPECULAR_W = 8.18856, STREAK_ANGLE = 17.5424, STREAK_LEN = 1500.0, STREAK_W = 12.3559 }
+
+[effects.preset.glass-osd]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens-layer.glsl"
+padding = 164
+params = { WAVE_AMP = 8.0, STREAK_AMP = 5.25424, CENTER_FADE = 0.79661, REFRACTION = 47.0, CURVATURE = 4.8, CHROMA = 0.8, SPECULAR = 0.220339, SPECULAR_W = 3.15678, WAVE_SIZE = 72.8814, STREAK_LEN = 1141.19, STREAK_W = 25.1356, STREAK_ANGLE = -19.8305, BEZEL = 61.0, IOR = 2.12, LIGHT = 76.2712, RIM_OPACITY = 0.245763, RIM_SATURATION = 7.43644, RIM_WHITE = 0.254237, RIM_W = 3.51907, RIM_LIGHT = -140.339, FADE_IN = 495.763, SEED = 53.8136 }
+
+# Panels and notifications: text, so the flaws fade towards the middle.
+[effects.preset.glass-panel]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens-layer.glsl"
+padding = 164
+params = { WAVE_AMP = 8.0, STREAK_AMP = 5.25424, CENTER_FADE = 0.79661, FADE_IN = 495.763, CURVATURE = 4.8, REFRACTION = 47.0, CHROMA = 0.8, IOR = 2.12, SPECULAR = 0.220339, WAVE_SIZE = 72.8814, SPECULAR_W = 3.15678, STREAK_LEN = 1141.19, STREAK_W = 25.1356, STREAK_ANGLE = -19.8305, BEZEL = 61.0, LIGHT = 76.2712, RIM_OPACITY = 0.245763, RIM_SATURATION = 7.43644, RIM_WHITE = 0.254237, RIM_W = 3.51907, RIM_LIGHT = -140.339, SEED = 53.8136 }
+
+[effects.preset.glass-vicinae]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens-layer.glsl"
+padding = 276
+params = { WAVE_AMP = 8.0, STREAK_AMP = 5.25424, CENTER_FADE = 0.79661, FADE_IN = 495.763, REACH = 57.1356, REFRACTION = 47.0, BEZEL = 61.0, CURVATURE = 4.8, CHROMA = 0.8, SPECULAR = 0.220339, SPECULAR_W = 3.15678, STREAK_ANGLE = -19.8305, STREAK_LEN = 1141.19, STREAK_W = 25.1356, WAVE_SIZE = 72.8814, IOR = 2.12, LIGHT = 76.2712, RIM_OPACITY = 0.245763, RIM_SATURATION = 7.43644, RIM_WHITE = 0.254237, RIM_W = 3.51907, RIM_LIGHT = -140.339, SEED = 53.8136 }
+
+# Every translucent window, terminals and Strata included (one look since
+# 2026-11-17); the lock screen and greeter glass read these values too.
+# padding 350: the tuned REFRACTION 172.881 needs (172.881 + 7.83 + 5.36 + 3)
+# * 1.8 = 340, plus zones (3.8) and sand (3.4) = 348 (the bend is capped at
+# the window's half size, so only small windows stay inside less).
+[effects.preset.glass-window]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens.glsl"
+padding = 350
+params = { WAVE_AMP = 7.83051, STREAK_AMP = 5.35593, CENTER_FADE = 0.79661, FADE_IN = 495.763, RIM_W = 3.51907, LIGHT = 76.2712, RIM_LIGHT = -140.339, RIM_OPACITY = 0.245763, RIM_SATURATION = 7.43644, RIM_WHITE = 0.254237, SEED = 93.0, SPECULAR = 0.220339, SPECULAR_W = 3.15678, STREAK_ANGLE = -40.4237, STREAK_LEN = 237.966, STREAK_W = 4.0, WAVE_SIZE = 20.0, RIPPLE_AMP = 3.0, RIPPLE_SIZE = 23.5, ZONE_PCT = 4.44915, ZONE_SIZE = 201.186, ZONE_BIAS = 0.279661, ZONE_CHROMA = 0.817797, SAND_SCATTER = 3.37288, SAND_GRAIN = 0.00610169, MILK = 0.0288136, FROST_PATCH = 0.144068, PATCH_SIZE = 29.8305, REFRACTION = 172.881, BEZEL = 92.9661 }
+
+# Glass shapes named over umbriel_glass_v1 (Vitrum); the shader caps the flaws
+# at a tenth of each shape's shorter half side.
+[effects.preset.glass-regions]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens-regions.glsl"
+padding = 136
+params = { WAVE_AMP = 4.0, STREAK_AMP = 4.0, CENTER_FADE = 0.3, FADE_IN = 120.0 }
+
+# Noctalia's surfaces; blur and blur_ignore_alpha are in config.toml. One rule
+# per preset, so a surface's selection is in one place.
+[[layer_rule]]
+match.namespace = "^noctalia-bar-"
+backdrop_effect = "glass-bar"
+
+[[layer_rule]]
+match.namespace = "^noctalia-dock$"
+backdrop_effect = "glass-dock"
+
+[[layer_rule]]
+match.namespace = "^noctalia-osd$"
+backdrop_effect = "glass-osd"
+
+[[layer_rule]]
+match.namespace = "^noctalia-(panel|attached-panel|notification)$"
+backdrop_effect = "glass-panel"
+
+# The Vicinae launcher; blur and blur_ignore_alpha are in config.toml.
+[[layer_rule]]
+match.namespace = "^vicinae$"
+backdrop_effect = "glass-vicinae"
+
+# Liquid glass behind every window. It is drawn by the window's blur node,
+# which exists only while the window is transparent, so opaque windows are
+# unaffected.
+[[window_rule]]
+backdrop_effect = "glass-window"
+
+# The terminals' 1 px hairline (config.toml), lit like the glass rim when focused.
+[[window_rule]]
+match.app_id = "^(com\\.mitchellh\\.ghostty|dev\\.rockorager\\.monstar)$"
+border_effect = "liquid-glass-rim"
+
+# Lens glass for layer surfaces (Noctalia, Vicinae): the window lens optics on
+# the layer shader's edge search. Set the two layer rules above back to
+# "liquid-glass-layer" for the old fold glass.
+[effects.preset.liquid-glass-lens-layer]
+kind = "backdrop"
+shader = "effects/liquid-glass-lens-layer.glsl"
+# Inward reach REFRACTION * (1 + CHROMA) = 60 * 1.88 = 113 px (see liquid-glass-lens).
+padding = 116
+
+# Vitrum (~/src/vitrum), the umbriel_glass_v1 demo: a frameless, clear window
+# whose panels are glass shapes. After the catch-all rule above, so it wins.
+[[window_rule]]
+match.app_id = "^dev\\.erebor\\.vitrum$"
+blur = true
+backdrop_effect = "glass-regions"
+border_width = 0
+shadow = false
+corner_radius = 0
+default_floating = true

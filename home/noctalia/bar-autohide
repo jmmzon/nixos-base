@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Toggle the Noctalia default bar between pinned (always shown, reserving its
+# space) and auto-hide (overlaying the workspace, no reserved space).
+#
+# The mode goes through `noctalia msg config-set`, which stores it in
+# Noctalia's settings override (~/.local/state/noctalia/settings.toml,
+# [bar.default]); it survives config reloads and new logins. Editing that file
+# directly raced with Noctalia's own writes, which put the old mode back.
+# Runtime-only IPC (`bar-auto-hide-set`, `bar-reserve-toggle`) is not used: it
+# is lost on every reload of the live config.
+set -euo pipefail
+
+usage() {
+  echo "usage: noctalia-bar-autohide [toggle|off|smart|on|status]" >&2
+  echo "  off = pinned, smart = smart auto-hide, on = always auto-hide" >&2
+  exit 2
+}
+
+action="${1:-toggle}"
+[[ $# -le 1 ]] || usage
+case "$action" in
+  toggle|on|off|smart|status) ;;
+  *) usage ;;
+esac
+
+get() { noctalia msg config-get "bar.default.$1" 2>/dev/null || true; }
+
+if [[ "$(get auto_hide)" == true ]]; then
+  current=on
+elif [[ "$(get smart_auto_hide)" == true ]]; then
+  current=smart
+else
+  current=off
+fi
+
+if [[ "$action" == status ]]; then
+  printf '%s\n' "$current"
+  exit 0
+fi
+if [[ "$action" == toggle ]]; then
+  [[ "$current" == off ]] && action="smart" || action="off"
+fi
+
+case "$action" in
+  off)   keys='auto_hide = false, smart_auto_hide = false, reserve_space = true' ;;
+  smart) keys='auto_hide = false, smart_auto_hide = true, reserve_space = false' ;;
+  on)    keys='auto_hide = true, smart_auto_hide = false, reserve_space = false' ;;
+esac
+
+reply="$(noctalia msg config-set bar.default "{ $keys }")"
+[[ "$reply" == ok* ]] || { printf '%s\n' "$reply" >&2; exit 1; }
+printf '%s\n' "$action"
