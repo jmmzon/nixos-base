@@ -254,5 +254,5 @@ Secret Service, every optional feature is off by default, and so on.
 
 ## License
 
-Not decided yet. Until a license is added, no rights beyond viewing are
-granted.
+MIT, see [LICENSE](LICENSE). The files under `patches/` modify other
+projects and remain under those projects' licenses.
