@@ -8,10 +8,14 @@
       config,
       lib,
       pkgs,
+      osConfig ? { },
       ...
     }:
     let
       inherit (pkgs.stdenv.hostPlatform) isDarwin isLinux;
+      # The Mac's nix-darwin config has no my.* options.
+      my = osConfig.my or { };
+      shellTasks = my.shellTasks or { enable = false; };
     in
     lib.mkMerge [
       {
@@ -202,7 +206,8 @@
             pkgs.replaceVars ../../home/fish/shell_welcome.fish
               { figlet = pkgs.figlet; };
           xdg.configFile."fastfetch/shell.jsonc".source = ../../home/fastfetch/shell.jsonc;
-          programs.fish.functions.fish_greeting.body = "printf '\\n'; shell_welcome; printf '\\n'";
+          programs.fish.functions.fish_greeting.body =
+            "printf '\\n'; shell_welcome; printf '\\n'" + lib.optionalString shellTasks.enable "; shell_tasks";
           home.activation.starshipNoctaliaConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
             base="$HOME/.config/noctalia/starship-base.toml"
             palette="$HOME/.cache/noctalia/starship-palette.toml"
@@ -230,6 +235,40 @@
             fi
           '';
           xdg.configFile."noctalia/starship-base.toml".source = ../../home/starship.toml;
+        }
+      ))
+
+      # my.shellTasks: the task script on PATH (reading my.flakePath outside a
+      # checkout), alias `et`, and the board the greeting prints after the
+      # banner. The board reads the live checkout, so it needs no rebuild.
+      (lib.mkIf (isLinux && shellTasks.enable) (
+        let
+          python = lib.getExe pkgs.python3;
+          inherit (my) flakePath;
+          name = baseNameOf my.taskBoard.script;
+          tasks = pkgs.writeShellScriptBin name ''
+            export TASKS_ROOT=''${TASKS_ROOT:-${flakePath}}
+            exec ${python} ${my.taskBoard.script} "$@"
+          '';
+        in
+        {
+          home.packages = [ tasks ];
+          programs.fish.shellAliases.et = name;
+          programs.fish.functions.shell_tasks = {
+            description = "Print the task board (my.shellTasks)";
+            body = ''
+              test -d ${flakePath}/tasks; or return 0
+              set -l width 80
+              if set -q COLUMNS; and test "$COLUMNS" -gt 0
+                set width $COLUMNS
+              end
+              set -l lines (${python} ${my.taskBoard.script} --root ${flakePath} list --json 2>/dev/null \
+                | ${python} ${../../home/fish/shell_tasks.py} --rows ${toString shellTasks.rows} \
+                  --columns ${lib.concatStringsSep "," shellTasks.columns} --width $width)
+              test (count $lines) -gt 0; or return 0
+              printf '%s\n' $lines ""
+            '';
+          };
         }
       ))
 

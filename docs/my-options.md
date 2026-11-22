@@ -217,8 +217,9 @@ Checkout of this repository that live desktop configs link to
 (Umbriel, Noctalia, the Zed keymap)\. Home Manager points
 those files at it with out-of-store symlinks, so saving the file there
 applies the change without a rebuild\. Null links the store copies
-instead (no checkout needed; edits need a rebuild); my\.taskBoard and
-my\.updateBranch, which read the checkout, then cannot be enabled\.
+instead (no checkout needed; edits need a rebuild); my\.taskBoard,
+my\.shellTasks and my\.updateBranch, which read the checkout, then cannot
+be enabled\.
 
 
 
@@ -1530,6 +1531,98 @@ false
 
 ```nix
 true
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
+## my\.shellTasks\.enable
+
+
+
+Whether to enable a task board under the fish welcome banner, read live from
+` <flakePath>/tasks ` with ` my.taskBoard.script --root <flakePath> list --json `
+(hidden while that directory is missing), and the task script on PATH
+under its own file name, alias ` et `, reading my\.flakePath when run
+outside a checkout (it gets the path as ` $TASKS_ROOT `)\. Needs
+my\.taskBoard\.script and my\.flakePath
+\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
+## my\.shellTasks\.columns
+
+
+
+Board columns, left to right: ` progress ` (ACTIVE tasks), ` todo ` (OPEN
+and REVIEW tasks) and ` attention ` (open tasks whose review is overdue
+or due within 2 days; they leave the other two columns)\.
+
+
+
+*Type:*
+list of (one of “progress”, “todo”, “attention”)
+
+
+
+*Default:*
+
+```nix
+[
+  "progress"
+  "todo"
+  "attention"
+]
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
+## my\.shellTasks\.rows
+
+
+
+Lines per board column, including the ` +k more ` line when tasks are cut\.
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+
+```nix
+4
 ```
 
 *Declared by:*

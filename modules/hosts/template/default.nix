@@ -56,6 +56,7 @@ in
         # nanokvm = { enable = true; url = "https://<kvm-name>:8443"; };
         # torrentVpn = { enable = true; };       # qBittorrent only via Proton VPN
         # updateBranch = { enable = true; script = ./update-branch; }; # weekly tested flake update branch
+        # shellTasks = { enable = true; rows = 4; }; # task board in new fish shells; needs taskBoard.script
         # streaming = {
         #   sunshine.enable = true;              # also serves sunshine.<domain>
         #   moonshine.enable = true;
