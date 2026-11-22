@@ -313,9 +313,12 @@ default_output = "sunshine"
 # enforces it). Add new includes before it. glass.toml is the
 # liquid glass, linked beside this file only with my.liquidGlass.enable
 # (modules/umbriel.nix); without it windows and panels keep plain blur.
-# The glass tuner's drafts (glass-tune, apps/glass-tuner) come right after
-# glass.toml: unsaved glass values, shown live until saved or discarded. The
+# Next, light mode's glass: erebor-theme-opacity (Noctalia's theme-mode hook,
+# modules/home/theme-opacity.nix) makes umbriel-glass.toml include glass-light.toml
+# (params overrides only) in light mode and removes it in dark mode.
+# The glass tuner's drafts (glass-tune, apps/glass-tuner) come after that:
+# unsaved glass values, shown live until saved or discarded. The
 # file exists only while there are drafts. erebor-modes writes the next one
 # while a mode turns the glass off (power-saver, modules/erebor-modes.nix).
 [include.optional]
-files = ["glass.toml", "~/.local/state/glass-tuner/umbriel.toml", "~/.local/state/erebor-modes/umbriel.toml", "noctalia.toml"]
+files = ["glass.toml", "~/.local/state/erebor-theme-opacity/umbriel-glass.toml", "~/.local/state/glass-tuner/umbriel.toml", "~/.local/state/erebor-modes/umbriel.toml", "noctalia.toml"]

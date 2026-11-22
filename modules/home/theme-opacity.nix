@@ -7,6 +7,13 @@
 #   and Strata's rendered theme, then makes the running apps reload
 #   (Ghostty: SIGUSR2, Monstar: SIGUSR1; Vicinae watches its files; Zed and
 #   Strata through `noctalia msg templates-apply`; Zen at its next start);
+# - picks the liquid glass for that mode: $state/umbriel-glass.toml includes
+#   glass-<mode>.toml beside Umbriel's config (glass-light.toml, linked by
+#   modules/umbriel.nix: params overrides for light mode), or is removed when
+#   there is none. Umbriel's config.toml includes it (optional) right after
+#   glass.toml. A file with an include, not a symlink: Umbriel watches an
+#   include's resolved target, so it would miss a symlink being repointed;
+#   it does see this file replaced or removed, and edits of the target;
 # - sets the icon theme to Fluent-dark / Fluent-light (dconf for GTK,
 #   kdeglobals for Qt/KDE) and tells running apps to reload their icons;
 # - on a mode change, remembers Noctalia's surface opacities and Darkly's (Qt
@@ -151,6 +158,23 @@
           strata="''${XDG_CONFIG_HOME:-$HOME/.config}/strata"
           mkdir -p "$strata/themes"
           ln -sfn "$strata/noctalia/$mode.toml" "$strata/themes/noctalia.toml"
+
+          # Liquid glass: this mode's params overrides, if Umbriel's config has
+          # any (glass-light.toml). Replaced by a rename and only when it
+          # changes, so Umbriel reloads once, never seeing it missing between.
+          glass_src="''${XDG_CONFIG_HOME:-$HOME/.config}/umbriel/glass-$mode.toml"
+          glass_inc="$state/umbriel-glass.toml"
+          if [ -e "$glass_src" ]; then
+            glass_want="# Written by erebor-theme-opacity: $mode mode's liquid glass.
+          [include.optional]
+          files = [\"$glass_src\"]"
+            if [ "$(cat "$glass_inc" 2>/dev/null || true)" != "$glass_want" ]; then
+              printf '%s\n' "$glass_want" > "$glass_inc.tmp"
+              mv -f "$glass_inc.tmp" "$glass_inc"
+            fi
+          else
+            rm -f "$glass_inc"
+          fi
 
           # Icon theme follows the mode too: GTK reads dconf, Qt/KDE kdeglobals.
           icons="Fluent-$mode"
@@ -335,9 +359,17 @@
       home.packages = [ script ];
       # Keep the links valid after a rebuild (new variants), in the last mode used;
       # dark before the first switch.
-      home.activation.themeOpacityLinks = lib.hm.dag.entryAfter [ "writeBoundary" "dconfSettings" ] ''
-        mode="$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg state}/mode 2>/dev/null || echo dark)"
-        run ${script}/bin/erebor-theme-opacity "$mode" --links-only
-      '';
+      # After linkGeneration: the glass link needs ~/.config/umbriel/glass-<mode>.toml.
+      home.activation.themeOpacityLinks =
+        lib.hm.dag.entryAfter
+          [
+            "writeBoundary"
+            "linkGeneration"
+            "dconfSettings"
+          ]
+          ''
+            mode="$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg state}/mode 2>/dev/null || echo dark)"
+            run ${script}/bin/erebor-theme-opacity "$mode" --links-only
+          '';
     };
 }

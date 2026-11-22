@@ -83,6 +83,12 @@ in
       xdg.configFile."umbriel/glass.toml" = lib.mkIf osConfig.my.liquidGlass.enable {
         source = liveFile "home/umbriel/glass.toml";
       };
+      # Light mode's overrides of glass.toml's params: erebor-theme-opacity
+      # (modules/home/theme-opacity.nix) links this into the include list while
+      # Noctalia is in light mode. Also live.
+      xdg.configFile."umbriel/glass-light.toml" = lib.mkIf osConfig.my.liquidGlass.enable {
+        source = liveFile "home/umbriel/glass-light.toml";
+      };
       # The store copy of glass.toml names its shaders relative to itself.
       xdg.configFile."umbriel/effects" =
         lib.mkIf (osConfig.my.liquidGlass.enable && osConfig.my.flakePath == null)

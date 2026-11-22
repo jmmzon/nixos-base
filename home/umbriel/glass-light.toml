@@ -1,0 +1,7 @@
+# Liquid glass in light mode: overrides of glass.toml's params, per preset and
+# key. A key not listed here keeps its dark value from glass.toml. Umbriel
+# includes this file only while Noctalia is in light mode (the theme-mode hook
+# includes it from ~/.local/state/erebor-theme-opacity/umbriel-glass.toml, which
+# config.toml includes right after glass.toml). Written by the glass tuner's
+# Light mode (glass-tune --mode light save); only [effects.params.<preset>]
+# tables are allowed here (a preset is defined once, in glass.toml).
