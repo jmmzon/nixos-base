@@ -246,6 +246,7 @@
           python = lib.getExe pkgs.python3;
           inherit (my) flakePath;
           name = baseNameOf my.taskBoard.script;
+          linkBase = if my.taskBoard.linkBase == null then "" else my.taskBoard.linkBase;
           tasks = pkgs.writeShellScriptBin name ''
             export TASKS_ROOT=''${TASKS_ROOT:-${flakePath}}
             exec ${python} ${my.taskBoard.script} "$@"
@@ -264,7 +265,8 @@
               end
               set -l lines (${python} ${my.taskBoard.script} --root ${flakePath} list --json 2>/dev/null \
                 | ${python} ${../../home/fish/shell_tasks.py} --rows ${toString shellTasks.rows} \
-                  --columns ${lib.concatStringsSep "," shellTasks.columns} --width $width)
+                  --columns ${lib.concatStringsSep "," shellTasks.columns} --width $width \
+                  --root ${flakePath} --git ${lib.getExe pkgs.git} --link-base '${linkBase}')
               test (count $lines) -gt 0; or return 0
               printf '%s\n' $lines ""
             '';

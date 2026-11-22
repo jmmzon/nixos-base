@@ -155,7 +155,9 @@
             `<flakePath>/tasks` with `my.taskBoard.script --root <flakePath> list --json`
             (hidden while that directory is missing), and the task script on PATH
             under its own file name, alias `et`, reading my.flakePath when run
-            outside a checkout (it gets the path as `$TASKS_ROOT`). Needs
+            outside a checkout (it gets the path as `$TASKS_ROOT`). Task IDs on the
+            board are terminal links: to my.taskBoard.linkBase when the file matches
+            the checkout's upstream branch, otherwise to the local file. Needs
             my.taskBoard.script and my.flakePath
           '';
           rows = lib.mkOption {
