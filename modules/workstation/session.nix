@@ -15,6 +15,23 @@
     {
       imports = [ inputs.helium.nixosModules.default ];
 
+      # Helium writes CHROME_WRAPPER into the Exec= line of web-app
+      # launchers; upstream sets it to the versioned store path, which a
+      # garbage collection removes after an update. Point it at the stable
+      # system profile instead ($HERE still comes from the real path).
+      # An overlay so a host can still .override it (e.g. fetchurl).
+      nixpkgs.overlays = [
+        (final: _: {
+          helium-stable-wrapper = (final.callPackage "${inputs.helium}/helium.nix" { }).overrideAttrs (old: {
+            postInstall = (old.postInstall or "") + ''
+              substituteInPlace $out/opt/helium/helium-wrapper \
+                --replace-fail 'export CHROME_WRAPPER' \
+                  'CHROME_WRAPPER=/run/current-system/sw/bin/helium; export CHROME_WRAPPER'
+            '';
+          });
+        })
+      ];
+
       systemd.user.services.xdg-desktop-portal = {
         after = [
           "graphical-session.target"
@@ -65,6 +82,7 @@
       programs.helium = {
         enable = true;
         flags = [ "--password-store=gnome-libsecret" ];
+        package = lib.mkDefault pkgs.helium-stable-wrapper;
       };
     };
 }
