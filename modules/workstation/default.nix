@@ -47,7 +47,6 @@ in
       greeter-glass
       plymouth-greeter-handoff
       umbriel
-      hyprland
       dashboard-control
       vicinae
       darkly

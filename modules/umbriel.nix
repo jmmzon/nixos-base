@@ -89,15 +89,11 @@ in
           {
             source = ../home/umbriel/effects;
           };
-      # The overview of whichever compositor runs this session (Umbriel's own,
-      # or ScrollOverview under Hyprland, SYS-116): for the edge swipe below
-      # and Noctalia's bar and hot corner.
+      # Umbriel's overview: for the edge swipe below and Noctalia's bar and
+      # hot corner.
       home.packages = [
         (pkgs.writeShellScriptBin "desktop-overview-toggle" ''
-          case ":''${XDG_CURRENT_DESKTOP,,}:" in
-            *:hyprland:*) exec hyprctl dispatch 'hl.plugin.scrolloverview.overview("toggle")' ;;
-            *) exec umbriel msg overview-toggle ;;
-          esac
+          exec umbriel msg overview-toggle
         '')
       ];
       # Edge swipes, which libinput does not report: reads the touchpads' raw
@@ -144,7 +140,7 @@ in
         {
           Unit = {
             Description = "Move other apps off the chat workspace";
-            # Umbriel only; the Hyprland session has no umbriel IPC.
+            # Umbriel only (umbriel IPC).
             ConditionEnvironment = "XDG_CURRENT_DESKTOP=umbriel";
             PartOf = [ "graphical-session.target" ];
             After = [ "graphical-session.target" ];

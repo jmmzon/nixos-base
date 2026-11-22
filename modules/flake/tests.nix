@@ -36,7 +36,6 @@ let
 
   # A config whose `my.*` is wrong in one way must fail with a message naming
   # the setting.
-  extendedWith = module: (hosts.template.extendModules { modules = [ module ]; }).config;
   failedWith =
     module:
     let
@@ -61,17 +60,10 @@ let
         lib.attrValues template.security.pam.services
       )) "template: a PAM service unlocks KWallet";
 
-    # Umbriel is the only session unless my.hyprland adds Hyprland.
-    sessions =
-      check (sessionNames template == [ "umbriel" ]) "template: sessions are not exactly [ umbriel ]"
-      ++ check (
-        sessionNames (extendedWith {
-          my.hyprland.enable = true;
-        }) == [
-          "umbriel"
-          "hyprland"
-        ]
-      ) "template with my.hyprland: sessions are not exactly [ umbriel hyprland ]";
+    # Umbriel is the only session.
+    sessions = check (
+      sessionNames template == [ "umbriel" ]
+    ) "template: sessions are not exactly [ umbriel ]";
 
     # Optional features switch off: the template enables none of them.
     features-off =

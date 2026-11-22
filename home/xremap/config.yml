@@ -316,7 +316,7 @@ keymap:
       CapsLock-comma: Ctrl-comma
 
   # Monstar has no tabs of its own; Umbriel stacks the new window as a tab
-  # (under Hyprland: a window group, see home/umbriel/monstar-tab).
+  # (see home/umbriel/monstar-tab).
   # Must stay ahead of the terminal and global keymaps that also bind Super-t.
   - name: "New tab (Monstar)"
     application:

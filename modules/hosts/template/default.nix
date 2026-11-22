@@ -51,7 +51,6 @@ in
         # yubikey = { enable = true; lockOnRemoval = true; };
         # sequoiaWallpaper = { enable = true; }; # needs ~/.local/share/sequoia/sequoia.scene
         # liquidGlass = { enable = true; };      # Umbriel, lock screen and greeter glass
-        # hyprland = { enable = true; };         # Hyprland as a second session
         # modes = { enable = true; powerSaver.brightnessConnectors = [ "DP-1" ]; }; # power-saver dims the desktop
         # macApproval = { enable = true; };
         # nanokvm = { enable = true; url = "https://<kvm-name>:8443"; };

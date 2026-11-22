@@ -154,10 +154,7 @@
             *) exit 2 ;;
           esac
 
-          case ":''${XDG_CURRENT_DESKTOP,,}:" in
-            *:hyprland:*) exec hyprctl dispatch "hl.dsp.layout('focus ''${direction:0:1}')" ;;
-            *) exec umbriel msg "window-focus-$direction" ;;
-          esac
+          exec umbriel msg "window-focus-$direction"
         '';
         executable = true;
       };

@@ -103,7 +103,7 @@
           example = "/etc/nixos";
           description = ''
             Checkout of this repository that live desktop configs link to
-            (Umbriel, Noctalia, Hyprland, the Zed keymap). Home Manager points
+            (Umbriel, Noctalia, the Zed keymap). Home Manager points
             those files at it with out-of-store symlinks, so saving the file there
             applies the change without a rebuild. Null links the store copies
             instead (no checkout needed; edits need a rebuild); my.taskBoard and
@@ -502,13 +502,6 @@
               description = "NVIDIA power limit in watts while power-saver is on (a root unit); null leaves it.";
             };
           };
-        };
-
-        hyprland = {
-          enable = lib.mkEnableOption ''
-            Hyprland as a second greeter session beside Umbriel (SYS-116), with its
-            live Lua config (home/hyprland/hyprland.lua) and the HyprGlass and
-            ScrollOverview plugins. Umbriel stays the default session'';
         };
 
         macApproval = {

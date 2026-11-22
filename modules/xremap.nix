@@ -74,7 +74,7 @@
             # xremap >= 0.15.17 auto-detects the desktop once at startup and keeps
             # "none" if the compositor is not up yet, which disables every
             # application-scoped keymap. wlroots connects on first use and covers
-            # Umbriel and Hyprland (wlr-foreign-toplevel).
+            # Umbriel (wlr-foreign-toplevel).
             ExecStart = "${pkgs.xremap}/bin/xremap --desktop wlroots --allow-launch true --mouse ${deviceArgs}/home/${user}/.config/xremap/config.yml";
             Restart = "on-failure";
           };

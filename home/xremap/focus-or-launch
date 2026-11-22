@@ -6,9 +6,6 @@ case ":${XDG_CURRENT_DESKTOP,,}:" in
   *:umbriel:*)
     exec "$HOME/.local/bin/umbriel-focus-or-launch" "$@"
     ;;
-  *:hyprland:*)
-    exec "$HOME/.local/bin/hypr-focus-or-launch" "$@"
-    ;;
   *)
     echo "Unsupported desktop: ${XDG_CURRENT_DESKTOP:-unset}" >&2
     exit 1

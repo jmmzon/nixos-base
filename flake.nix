@@ -32,16 +32,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     umbriel.url = "github:noctalia-dev/umbriel/1bbbf155d25b2a338c7b6d52863d9f6efaf346ac";
-    # Hyprland plugins (modules/hyprland.nix), built against nixpkgs' Hyprland.
-    # Bump them together with Hyprland: HyprGlass from its hyprland-X.Y branch.
-    hyprglass = {
-      url = "github:hyprnux/hyprglass/317ed8c1b06be00990ccdca02bf9ade936f47f13";
-      flake = false;
-    };
-    scrolloverview = {
-      url = "github:yayuuu/hyprland-scroll-overview/3eb62e3e0093d54cbdcf4f58c831b5b53b3b1ff2";
-      flake = false;
-    };
     millennium = {
       url = "github:SteamClientHomebrew/Millennium/6522c24e8bd3de41a7601ceb4e78a619930f1704?dir=packages/nix";
       inputs.nixpkgs.follows = "nixpkgs";

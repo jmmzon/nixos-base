@@ -48,7 +48,6 @@ in
       # Split by topic and feature so parallel changes rarely touch one file.
       imports = with homeManager; [
         umbriel
-        hyprland
         shell
         desktop
         darkly

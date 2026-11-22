@@ -214,7 +214,7 @@ list of string matching the pattern \[A-Za-z0-9\._-]+
 
 
 Checkout of this repository that live desktop configs link to
-(Umbriel, Noctalia, Hyprland, the Zed keymap)\. Home Manager points
+(Umbriel, Noctalia, the Zed keymap)\. Home Manager points
 those files at it with out-of-store symlinks, so saving the file there
 applies the change without a rebuild\. Null links the store copies
 instead (no checkout needed; edits need a rebuild); my\.taskBoard and
@@ -500,40 +500,6 @@ null
 
 ```nix
 "alsa_output.usb-iFi__by_AMR__iFi__by_AMR__HD_USB_Audio_0003-00.analog-stereo"
-```
-
-*Declared by:*
- - [modules/my\.nix](../modules/my.nix)
-
-
-
-## my\.hyprland\.enable
-
-
-
-Whether to enable Hyprland as a second greeter session beside Umbriel (SYS-116), with its
-live Lua config (home/hyprland/hyprland\.lua) and the HyprGlass and
-ScrollOverview plugins\. Umbriel stays the default session\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-
-```nix
-false
-```
-
-
-
-*Example:*
-
-```nix
-true
 ```
 
 *Declared by:*

@@ -81,10 +81,9 @@ system before and after (same derivation, or explain the difference).
 
 ## Design boundaries
 
-- Umbriel is the default session, started by the Noctalia greeter; Noctalia
-  runs as a systemd user service on `graphical-session.target`. Hyprland is
-  the only other session, behind `my.hyprland`. Oo7 is the Secret Service;
-  GNOME Keyring and KWallet stay off. The eval tests in
+- Umbriel is the only session, started by the Noctalia greeter; Noctalia
+  runs as a systemd user service on `graphical-session.target`. Oo7 is the
+  Secret Service; GNOME Keyring and KWallet stay off. The eval tests in
   `modules/flake/tests.nix` enforce these rules; extend them when adding a
   rule.
 - Keep the flake lock committed. Third-party inputs are pinned to a commit:

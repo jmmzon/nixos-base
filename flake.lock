@@ -161,23 +161,6 @@
         "type": "github"
       }
     },
-    "hyprglass": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1793721105,
-        "narHash": "sha256-zA7q8r/FAURwg2GnaPsKxLvbnsnOXmhYzUeOUezLuPk=",
-        "owner": "hyprnux",
-        "repo": "hyprglass",
-        "rev": "317ed8c1b06be00990ccdca02bf9ade936f47f13",
-        "type": "github"
-      },
-      "original": {
-        "owner": "hyprnux",
-        "repo": "hyprglass",
-        "rev": "317ed8c1b06be00990ccdca02bf9ade936f47f13",
-        "type": "github"
-      }
-    },
     "import-tree": {
       "locked": {
         "lastModified": 1788467110,
@@ -475,7 +458,6 @@
         "flake-parts": "flake-parts",
         "helium": "helium",
         "home-manager": "home-manager",
-        "hyprglass": "hyprglass",
         "import-tree": "import-tree",
         "millennium": "millennium",
         "monstar": "monstar",
@@ -484,29 +466,11 @@
         "nixpkgs": "nixpkgs_3",
         "noctalia": "noctalia",
         "noctalia-greeter": "noctalia-greeter",
-        "scrolloverview": "scrolloverview",
         "sops-nix": "sops-nix",
         "strata": "strata",
         "umbriel": "umbriel",
         "vicinae": "vicinae",
         "zen-browser": "zen-browser"
-      }
-    },
-    "scrolloverview": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1793850365,
-        "narHash": "sha256-0mBYt+dkLeXonsVLKs8mfsNbMQ1Zqvzf0r8VOteXni4=",
-        "owner": "yayuuu",
-        "repo": "hyprland-scroll-overview",
-        "rev": "3eb62e3e0093d54cbdcf4f58c831b5b53b3b1ff2",
-        "type": "github"
-      },
-      "original": {
-        "owner": "yayuuu",
-        "repo": "hyprland-scroll-overview",
-        "rev": "3eb62e3e0093d54cbdcf4f58c831b5b53b3b1ff2",
-        "type": "github"
       }
     },
     "sops-nix": {

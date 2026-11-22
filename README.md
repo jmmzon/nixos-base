@@ -29,8 +29,6 @@ The desktop:
   library) and `sequoia:` (needs a scene file you supply).
 - A Plymouth → greeter handoff without a black gap, and kmscon on the text
   consoles.
-- **Hyprland** as an optional second session (`my.hyprland`), with the
-  HyprGlass and scroll-overview plugins.
 - Desktop modes: power-saver (dims the screen over DDC, lowers the ambient
   light and GPU power limit) and reduce-transparency, plus app opacity that
   follows Noctalia's light/dark mode.
@@ -190,8 +188,7 @@ such a file fails with an assertion naming the option until it is set.
 ## Live dotfiles: `my.flakePath`
 
 Some configs are meant to be edited often: Umbriel's `config.toml` and
-`glass.toml`, Noctalia's `config.toml`, Hyprland's `hyprland.lua` and the Zed
-keymap.
+`glass.toml`, Noctalia's `config.toml` and the Zed keymap.
 
 - `my.flakePath = null` (the default): Home Manager links the copies from
   this flake's `home/` in the Nix store. They work out of the box, and every
@@ -247,7 +244,7 @@ nix run .#write-docs     # regenerate docs/my-options.md after changing an optio
 ```
 
 The eval tests in `modules/flake/tests.nix` check the design rules against
-the template: Umbriel is the only session unless Hyprland is on, Oo7 is the
+the template: Umbriel is the only session, Oo7 is the
 Secret Service, every optional feature is off by default, and so on.
 `scripts/tests/` has a VM test that needs KVM and is not part of
 `nix flake check`.

@@ -24,20 +24,6 @@ command_for() {
   printf 'monstar'
 }
 
-# Hyprland (SYS-116): tabs are a window group. Make the focused Monstar a
-# group if it is not one yet; the new window joins the focused group
-# (group.auto_group).
-if [[ ":${XDG_CURRENT_DESKTOP,,}:" == *:hyprland:* ]]; then
-  active="$(hyprctl activewindow -j)"
-  [ "$(jq -r '.class' <<<"$active")" = "$app_id" ] || exit 0
-  if [ "$(jq -r '.floating' <<<"$active")" != "true" ] \
-    && [ "$(jq -r '.grouped | length' <<<"$active")" = "0" ]; then
-    hyprctl dispatch 'hl.dsp.group.toggle()' >/dev/null
-  fi
-  command="$(command_for "$(jq -r '.pid' <<<"$active")")"
-  exec hyprctl dispatch "hl.dsp.exec_cmd([==[$command]==])" >/dev/null
-fi
-
 focused="$(umbriel focused-window --json)"
 [ "$(jq -r '.app_id' <<<"$focused")" = "$app_id" ] || exit 0
 

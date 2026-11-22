@@ -787,7 +787,7 @@ source = "wallpaper"
 wallpaper_scheme = "m3-tonal-spot"
 
     [theme.templates]
-    builtin_ids = [ "btop", "cava", "gtk4", "ghostty", "hyprland", "kcolorscheme", "qt", "starship", "umbriel" ]
+    builtin_ids = [ "btop", "cava", "gtk4", "ghostty", "kcolorscheme", "qt", "starship", "umbriel" ]
     community_ids = [
         "claude-code",
         "codex",
