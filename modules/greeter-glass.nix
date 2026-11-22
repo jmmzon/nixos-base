@@ -14,6 +14,13 @@
 # It eases into motion, slows after 10 s without input, stops after 30 s and speeds
 # up on input. Source: branch sequoia-live on top of lockscreen-glass; the patch is
 # `git diff lockscreen-glass sequoia-live -- . ':!1'`. It needs the glass patch.
+#
+# With my.shaderWallpaper too, it runs the live `shader:` wallpaper the shell
+# synced ([appearance.shader] and its wallpaper-shader* files) on the outputs
+# showing it, from the still's iTime, with the same idle ramp; compiles run in
+# the background while the still stays. Source: branch shader-live on top of
+# sequoia-live; the patch is `git diff sequoia-live shader-live -- . ':!1'`. It
+# needs the Sequoia greeter patch.
 {
   flake.modules.nixos.greeter-glass =
     { config, lib, ... }:
@@ -21,6 +28,9 @@
       programs.noctalia.greeterPatches = [
         ../patches/noctalia-greeter-liquid-glass.patch
       ]
-      ++ lib.optional config.my.sequoiaWallpaper.enable ../patches/noctalia-greeter-sequoia-live.patch;
+      ++ lib.optional config.my.sequoiaWallpaper.enable ../patches/noctalia-greeter-sequoia-live.patch
+      ++ lib.optional (
+        config.my.sequoiaWallpaper.enable && config.my.shaderWallpaper.enable
+      ) ../patches/noctalia-greeter-shader-live.patch;
     };
 }

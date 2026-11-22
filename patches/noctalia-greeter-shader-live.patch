@@ -1,0 +1,2415 @@
+diff --git a/meson.build b/meson.build
+index f7c455e..a3b1e50 100644
+--- a/meson.build
++++ b/meson.build
+@@ -138,6 +138,8 @@ _greeter_sources = files(
+   'src/render/programs/glass_params.cpp',
+   'src/render/programs/liquid_glass_program.cpp',
+   'src/greeter/sequoia_live.cpp',
++  'src/greeter/shader_live.cpp',
++  'src/render/shader/shader_source.cpp',
+   'src/render/sequoia/sequoia_assets.cpp',
+   'src/render/sequoia/sequoia_renderer.cpp',
+   'src/render/sequoia/sequoia_scene.cpp',
+diff --git a/src/greeter/appearance_config.cpp b/src/greeter/appearance_config.cpp
+index 3f64805..00a5fe5 100644
+--- a/src/greeter/appearance_config.cpp
++++ b/src/greeter/appearance_config.cpp
+@@ -91,6 +91,7 @@ namespace {
+       }
+     }
+     result.sequoia = preferred.sequoia.has_value() ? preferred.sequoia : fallback.sequoia;
++    result.shader = preferred.shader.has_value() ? preferred.shader : fallback.shader;
+     return result;
+   }
+ 
+@@ -112,6 +113,28 @@ namespace {
+     return out;
+   }
+ 
++  [[nodiscard]] std::optional<GreeterShaderParams> convertTomlShader(const greeter::config::GreeterTomlShader& in) {
++    if (!in.main.has_value() || in.main->empty()) {
++      return std::nullopt;
++    }
++    GreeterShaderParams out;
++    out.main = *in.main;
++    out.common = in.common.value_or(std::string{});
++    for (std::size_t i = 0; i < 4; ++i) {
++      if (i < in.buffers.size()) {
++        out.buffers[i] = in.buffers[i];
++      }
++      if (i < in.textures.size()) {
++        out.textures[i] = in.textures[i];
++      }
++    }
++    out.time = std::clamp(in.time.value_or(0.0), 0.0, 1.0e7);
++    out.speed = std::clamp(in.speed.value_or(1.0), 0.0, 10.0);
++    out.fps = static_cast<int>(std::clamp<std::int64_t>(in.fps.value_or(60), 1, 240));
++    out.renderScale = static_cast<float>(std::clamp(in.renderScale.value_or(0.5), 0.1, 1.0));
++    return out;
++  }
++
+   [[nodiscard]] std::optional<GreeterWallpaperAppearance>
+   convertTomlWallpapers(const greeter::config::GreeterTomlAppearance& appearance) {
+     if (!appearance.wallpaper.has_value() && appearance.wallpapers.empty()) {
+@@ -122,20 +145,29 @@ namespace {
+     if (appearance.sequoia.has_value()) {
+       result.sequoia = convertTomlSequoia(*appearance.sequoia);
+     }
++    if (appearance.shader.has_value()) {
++      result.shader = convertTomlShader(*appearance.shader);
++    }
+     const bool sequoiaAvailable = result.sequoia.has_value();
+     auto isLive = [sequoiaAvailable](const greeter::config::GreeterTomlWallpaper& wallpaper) {
+       return sequoiaAvailable && wallpaper.live.has_value() && *wallpaper.live == "sequoia";
+     };
++    const bool shaderAvailable = result.shader.has_value();
++    auto isShaderLive = [shaderAvailable](const greeter::config::GreeterTomlWallpaper& wallpaper) {
++      return shaderAvailable && wallpaper.live.has_value() && *wallpaper.live == "shader";
++    };
+     if (appearance.wallpaper.has_value()) {
+       GreeterOutputWallpaper wallpaper;
+       applyTomlWallpaper(*appearance.wallpaper, wallpaper);
+       wallpaper.live = isLive(*appearance.wallpaper);
++      wallpaper.shaderLive = isShaderLive(*appearance.wallpaper);
+       result.wallpaper = wallpaper;
+     }
+     for (const auto& [connector, wallpaper] : appearance.wallpapers) {
+       GreeterOutputWallpaper outputWallpaper;
+       applyTomlWallpaper(wallpaper, outputWallpaper);
+       outputWallpaper.live = isLive(wallpaper);
++      outputWallpaper.shaderLive = isShaderLive(wallpaper);
+       result.wallpapersByOutput.emplace(connector, std::move(outputWallpaper));
+     }
+     return result;
+diff --git a/src/greeter/appearance_config.h b/src/greeter/appearance_config.h
+index 0a4033c..a889e28 100644
+--- a/src/greeter/appearance_config.h
++++ b/src/greeter/appearance_config.h
+@@ -3,6 +3,7 @@
+ #include "config/config_types.h"
+ #include "ui/palette.h"
+ 
++#include <array>
+ #include <filesystem>
+ #include <map>
+ #include <optional>
+@@ -18,6 +19,21 @@ struct GreeterOutputWallpaper {
+   Color fillColor = rgba(0.0f, 0.0f, 0.0f, 0.0f);
+   // Animate the synced Sequoia scene over `path` (its still frame).
+   bool live = false;
++  // Run the synced shader over `path` (its still frame).
++  bool shaderLive = false;
++};
++
++// The synced live shader ([appearance.shader]): its files ("" = none) and the iTime
++// of its still frame.
++struct GreeterShaderParams {
++  std::string main;
++  std::array<std::string, 4> buffers;
++  std::string common;
++  std::array<std::string, 4> textures;
++  double time = 0.0;
++  double speed = 1.0;
++  int fps = 60;
++  float renderScale = 0.5f;
+ };
+ 
+ // The synced Sequoia scene and the pose of its still frame ([appearance.sequoia]).
+@@ -37,6 +53,7 @@ struct GreeterWallpaperAppearance {
+   std::optional<GreeterOutputWallpaper> wallpaper;
+   std::unordered_map<std::string, GreeterOutputWallpaper> wallpapersByOutput;
+   std::optional<GreeterSequoiaParams> sequoia;
++  std::optional<GreeterShaderParams> shader;
+ 
+   [[nodiscard]] std::optional<GreeterOutputWallpaper> wallpaperForOutput(std::string_view outputName) const {
+     if (!outputName.empty()) {
+diff --git a/src/greeter/greeter.cpp b/src/greeter/greeter.cpp
+index 0ee2368..e179852 100644
+--- a/src/greeter/greeter.cpp
++++ b/src/greeter/greeter.cpp
+@@ -8,6 +8,7 @@
+ #include "greeter/greeter_window.h"
+ #include "greeter/logind_resume.h"
+ #include "greeter/sequoia_live.h"
++#include "greeter/shader_live.h"
+ #include "render/render_context.h"
+ #include "render/text/glyph_registry.h"
+ #include "ui/controls/input.h"
+@@ -165,6 +166,7 @@ int Greeter::run(WaylandClient& client, const std::atomic<bool>& shutdownRequest
+     // Live Sequoia wallpaper: frames are timer-paced (60 fps cap) instead of riding the
+     // frame callbacks, so the rest of the greeter stays idle between scene frames.
+     SequoiaLive::instance().advance();
++    ShaderLive::instance().advance();
+     int liveTimeoutMs = -1;
+     for (auto& view : m_views) {
+       const int delay = view.surface->pollLiveWallpaper();
+@@ -539,6 +541,7 @@ void Greeter::onGreetdReadable() {
+ void Greeter::setupInputCallbacks(WaylandClient& client) {
+   client.setPointerEventCallback([this](const PointerEvent& event) {
+     SequoiaLive::instance().noteActivity();
++    ShaderLive::instance().noteActivity();
+     View* view = viewForSurface(event.surface);
+     if (view == nullptr) {
+       return;
+@@ -572,6 +575,7 @@ void Greeter::setupInputCallbacks(WaylandClient& client) {
+ 
+   client.setKeyboardEventCallback([this](const KeyboardEvent& event) {
+     SequoiaLive::instance().noteActivity();
++    ShaderLive::instance().noteActivity();
+     onKeyboardEvent(event.sym, event.utf32, event.modifiers, event.pressed, event.preedit);
+   });
+ }
+diff --git a/src/greeter/greeter_config_io.cpp b/src/greeter/greeter_config_io.cpp
+index a23a89c..926cd92 100644
+--- a/src/greeter/greeter_config_io.cpp
++++ b/src/greeter/greeter_config_io.cpp
+@@ -75,7 +75,8 @@ namespace {
+         || key == "wallpaper"
+         || key == "wallpapers"
+         || key == "glass"
+-        || key == "sequoia";
++        || key == "sequoia"
++        || key == "shader";
+   }
+ 
+   [[nodiscard]] bool isKnownOutputKey(std::string_view key) {
+@@ -221,6 +222,51 @@ namespace {
+     return sequoia;
+   }
+ 
++  [[nodiscard]] greeter::config::GreeterTomlShader
++  parseShaderTable(const toml::table& table, const std::filesystem::path& path) {
++    greeter::config::GreeterTomlShader shader;
++    auto number = [&](std::string_view key, std::optional<double>& out) {
++      if (const auto* node = table.get(key)) {
++        if (const auto value = node->value<double>(); value.has_value() && std::isfinite(*value)) {
++          out = *value;
++        } else {
++          kLog.warn("{}: invalid appearance.shader.{} value", path.string(), key);
++        }
++      }
++    };
++    auto strings = [&](std::string_view key, std::vector<std::string>& out) {
++      if (const auto* node = table.get(key)) {
++        const auto* array = node->as_array();
++        if (array == nullptr) {
++          kLog.warn("{}: appearance.shader.{} must be an array", path.string(), key);
++          return;
++        }
++        for (const auto& item : *array) {
++          out.push_back(item.value<std::string>().value_or(std::string{}));
++        }
++      }
++    };
++    if (const auto* node = table.get("main")) {
++      shader.main = stringValue(*node);
++    }
++    if (const auto* node = table.get("common")) {
++      shader.common = stringValue(*node);
++    }
++    strings("buffers", shader.buffers);
++    strings("textures", shader.textures);
++    number("time", shader.time);
++    number("speed", shader.speed);
++    number("render_scale", shader.renderScale);
++    if (const auto* node = table.get("fps")) {
++      if (const auto value = node->value<std::int64_t>()) {
++        shader.fps = *value;
++      } else {
++        kLog.warn("{}: invalid appearance.shader.fps value", path.string());
++      }
++    }
++    return shader;
++  }
++
+   void warnUnknownTopLevelKey(const std::filesystem::path& path, std::string_view key) {
+     kLog.warn("{}: unrecognized top-level key '{}' (ignored)", path.string(), key);
+   }
+@@ -346,6 +392,12 @@ namespace {
+             } else {
+               kLog.warn("{}: appearance.sequoia must be a table", path.string());
+             }
++          } else if (entryView == "shader") {
++            if (const auto* shaderTable = entryNode.as_table()) {
++              config.appearance.shader = parseShaderTable(*shaderTable, path);
++            } else {
++              kLog.warn("{}: appearance.shader must be a table", path.string());
++            }
+           }
+         } else if (keyView == "clock") {
+           if (!isKnownClockKey(entryView)) {
+@@ -525,6 +577,38 @@ namespace {
+     return table;
+   }
+ 
++  [[nodiscard]] toml::table buildShaderTomlTable(const greeter::config::GreeterTomlShader& shader) {
++    toml::table table;
++    if (shader.main.has_value()) {
++      table.insert_or_assign("main", *shader.main);
++    }
++    if (shader.common.has_value()) {
++      table.insert_or_assign("common", *shader.common);
++    }
++    for (const auto& [key, values] : {std::pair{"buffers", &shader.buffers}, std::pair{"textures", &shader.textures}}) {
++      if (!values->empty()) {
++        toml::array array;
++        for (const auto& value : *values) {
++          array.push_back(value);
++        }
++        table.insert_or_assign(key, std::move(array));
++      }
++    }
++    if (shader.time.has_value()) {
++      table.insert_or_assign("time", *shader.time);
++    }
++    if (shader.speed.has_value()) {
++      table.insert_or_assign("speed", *shader.speed);
++    }
++    if (shader.fps.has_value()) {
++      table.insert_or_assign("fps", *shader.fps);
++    }
++    if (shader.renderScale.has_value()) {
++      table.insert_or_assign("render_scale", *shader.renderScale);
++    }
++    return table;
++  }
++
+   [[nodiscard]] toml::table buildSequoiaTomlTable(const greeter::config::GreeterTomlSequoia& sequoia) {
+     toml::table table;
+     if (sequoia.scene.has_value()) {
+@@ -617,6 +701,12 @@ namespace {
+         table.insert("sequoia", std::move(sequoia));
+       }
+     }
++    if (appearance.shader.has_value()) {
++      toml::table shader = buildShaderTomlTable(*appearance.shader);
++      if (!shader.empty()) {
++        table.insert("shader", std::move(shader));
++      }
++    }
+     return table;
+   }
+ 
+diff --git a/src/greeter/greeter_config_store.h b/src/greeter/greeter_config_store.h
+index 846ba63..73f71cb 100644
+--- a/src/greeter/greeter_config_store.h
++++ b/src/greeter/greeter_config_store.h
+@@ -21,10 +21,24 @@ namespace greeter::config {
+     std::optional<std::string> path;
+     std::optional<std::string> fillMode;
+     std::optional<std::string> fillColor;
+-    // "sequoia": animate the synced Sequoia scene here; `path` is its still frame.
++    // "sequoia": animate the synced Sequoia scene here; "shader": run the synced
++    // shader here. `path` is the still frame either way.
+     std::optional<std::string> live;
+   };
+ 
++  // [appearance.shader], written by the shell's sync: the one live shader's files
++  // (each "" when absent) and where its still stood in time.
++  struct GreeterTomlShader {
++    std::optional<std::string> main;
++    std::vector<std::string> buffers; // A-D
++    std::optional<std::string> common;
++    std::vector<std::string> textures; // texture slots 0-3
++    std::optional<double> time;        // iTime of the still frame
++    std::optional<double> speed;
++    std::optional<std::int64_t> fps;
++    std::optional<double> renderScale;
++  };
++
+   // [appearance.sequoia], written by the shell's sync: the scene file and where the
+   // still frame stood, so the greeter carries on from it.
+   struct GreeterTomlSequoia {
+@@ -52,6 +66,7 @@ namespace greeter::config {
+     // (WAVE_AMP = 4.0, ...) for the login panel glass.
+     std::map<std::string, double> glass;
+     std::optional<GreeterTomlSequoia> sequoia;
++    std::optional<GreeterTomlShader> shader;
+ 
+     [[nodiscard]] bool hasCompletePalette() const;
+   };
+diff --git a/src/greeter/greeter_surface.cpp b/src/greeter/greeter_surface.cpp
+index fc44067..565112e 100644
+--- a/src/greeter/greeter_surface.cpp
++++ b/src/greeter/greeter_surface.cpp
+@@ -1,6 +1,7 @@
+ #include "greeter/greeter_surface.h"
+ 
+ #include "greeter/sequoia_live_node.h"
++#include "greeter/shader_live_node.h"
+ #include "render/programs/glass_params.h"
+ #include "render/scene/liquid_glass_node.h"
+ 
+@@ -193,6 +194,7 @@ GreeterSurface::GreeterSurface() = default;
+ 
+ GreeterSurface::~GreeterSurface() {
+   SequoiaLive::instance().forgetConsumer(this);
++  ShaderLive::instance().forgetConsumer(this);
+   if (m_renderContext != nullptr) {
+     if (m_brandLogoTexture.id != 0) {
+       m_renderContext->textureManager().unload(m_brandLogoTexture);
+@@ -233,6 +235,14 @@ void GreeterSurface::initialize(RenderContext* context) {
+   m_liveWallpaper->setVisible(false);
+   m_root.addChild(std::move(liveWallpaper));
+ 
++  // Live shader over the still, the same way.
++  auto shaderWallpaper = std::make_unique<ShaderLiveNode>(this);
++  m_shaderWallpaper = shaderWallpaper.get();
++  m_shaderWallpaper->setZIndex(0);
++  m_shaderWallpaper->setHitTestVisible(false);
++  m_shaderWallpaper->setVisible(false);
++  m_root.addChild(std::move(shaderWallpaper));
++
+   auto backdrop = std::make_unique<RectNode>();
+   backdrop->setStyle(
+       RoundedRectStyle{
+@@ -1132,6 +1142,11 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
+     m_liveWallpaper->setSize(sw, sh);
+     m_liveWallpaper->setVisible(m_wallpaperLive && m_livePrimed && SequoiaLive::instance().usable());
+   }
++  if (m_shaderWallpaper != nullptr) {
++    m_shaderWallpaper->setPosition(ox, oy);
++    m_shaderWallpaper->setSize(sw, sh);
++    m_shaderWallpaper->setVisible(m_wallpaperShader && m_livePrimed && ShaderLive::instance().usable());
++  }
+ 
+   m_backdrop->setPosition(ox, oy);
+   m_backdrop->setSize(sw, sh);
+@@ -1955,6 +1970,7 @@ void GreeterSurface::setWallpaperSpanParams(const WallpaperSpanParams& params) {
+ 
+ void GreeterSurface::clearWallpaperDisplay() {
+   m_wallpaperLive = false;
++  m_wallpaperShader = false;
+   m_hasWallpaper = false;
+   m_wallpaperPath.clear();
+   m_wallpaperFillMode = WallpaperFillMode::Crop;
+@@ -1982,9 +1998,16 @@ void GreeterSurface::applyConfiguredWallpaper() {
+   m_wallpaperLive = wallpaper->live
+       && m_wallpaperAppearance->sequoia.has_value()
+       && SequoiaLive::instance().configure(*m_wallpaperAppearance->sequoia);
++  m_wallpaperShader = !m_wallpaperLive
++      && wallpaper->shaderLive
++      && m_wallpaperAppearance->shader.has_value()
++      && ShaderLive::instance().configure(*m_wallpaperAppearance->shader);
+ }
+ 
+ int GreeterSurface::pollLiveWallpaper() {
++  if (m_wallpaperShader) {
++    return pollShaderWallpaper();
++  }
+   if (!m_wallpaperLive || m_liveWallpaper == nullptr || m_window == nullptr) {
+     return -1;
+   }
+@@ -3885,3 +3908,33 @@ void GreeterSurface::rebuildSchemeMenu() {
+       m_schemeMenuScroll, [this](std::size_t i) { selectScheme(i); }
+   );
+ }
++
++int GreeterSurface::pollShaderWallpaper() {
++  if (m_shaderWallpaper == nullptr || m_window == nullptr) {
++    return -1;
++  }
++  auto& live = ShaderLive::instance();
++  if (!live.usable()) {
++    if (m_shaderWallpaper->visible()) {
++      m_shaderWallpaper->setVisible(false); // compile or GPU failure: back to the still
++      requestRedraw();
++    }
++    return -1;
++  }
++  if (!m_livePrimed) {
++    // The synced still goes on screen first; the shader takes over once compiled.
++    if (m_framesPrepared == 0) {
++      return 16;
++    }
++    m_livePrimed = true;
++    m_shaderWallpaper->setVisible(true);
++  }
++  const int delay = live.frameDelayMs(this);
++  if (delay != 0) {
++    return delay;
++  }
++  m_shaderWallpaper->invalidate();
++  requestRedraw();
++  const int next = live.frameDelayMs(this);
++  return next == 0 ? 16 : next; // the paint did not happen (deferred); try again shortly
++}
+diff --git a/src/greeter/greeter_surface.h b/src/greeter/greeter_surface.h
+index 711c782..15033e1 100644
+--- a/src/greeter/greeter_surface.h
++++ b/src/greeter/greeter_surface.h
+@@ -39,6 +39,7 @@ class WallpaperNode;
+ 
+ class LiquidGlassNode;
+ class SequoiaLiveNode;
++class ShaderLiveNode;
+ 
+ class GreeterSurface {
+ public:
+@@ -94,12 +95,13 @@ public:
+ 
+   [[nodiscard]] Node* sceneRoot() noexcept { return &m_root; }
+   [[nodiscard]] bool animating() const noexcept { return m_animations.hasActive(); }
+-  // Live Sequoia wallpaper: repaints when a frame is due. Returns -1 when this output
++  // Live Sequoia or shader wallpaper: repaints when a frame is due. Returns -1 when this output
+   // needs no live frame, else milliseconds until the next one.
+   int pollLiveWallpaper();
+ 
+ private:
+   void notifyStateChanged();
++  int pollShaderWallpaper();
+   [[nodiscard]] bool pointerInViewport(float x, float y) const;
+   void syncScaledTypography();
+   void layoutScene(std::uint32_t width, std::uint32_t height);
+@@ -218,8 +220,10 @@ private:
+   Node* m_panelDivider = nullptr;
+   LiquidGlassNode* m_loginGlass = nullptr;
+   SequoiaLiveNode* m_liveWallpaper = nullptr;
+-  bool m_wallpaperLive = false; // this output's wallpaper is the live Sequoia scene
+-  bool m_livePrimed = false;    // the still was presented first; live frames may follow
++  ShaderLiveNode* m_shaderWallpaper = nullptr;
++  bool m_wallpaperShader = false; // this output's wallpaper is the live shader
++  bool m_wallpaperLive = false;   // this output's wallpaper is the live Sequoia scene
++  bool m_livePrimed = false;      // the still was presented first; live frames may follow
+   std::uint64_t m_framesPrepared = 0;
+   Box* m_loginPanel = nullptr;
+   Box* m_userSelectBox = nullptr;
+diff --git a/src/greeter/shader_live.cpp b/src/greeter/shader_live.cpp
+new file mode 100644
+index 0000000..6ed2e55
+--- /dev/null
++++ b/src/greeter/shader_live.cpp
+@@ -0,0 +1,781 @@
++#include "greeter/shader_live.h"
++
++#include "core/log.h"
++#include "render/core/image_file_loader.h"
++
++#include <EGL/egl.h>
++#include <algorithm>
++#include <cmath>
++#include <cstdio>
++#include <cstring>
++#include <ctime>
++#include <fstream>
++#include <sstream>
++#include <string_view>
++#include <utility>
++
++namespace {
++
++  constexpr Logger kLog("shader-live");
++
++  // Idle ramp, as for the live Sequoia scene. The greeter compositor blanks the
++  // screen at its idle timeout.
++  constexpr auto kSlowAfter = std::chrono::seconds(10);
++  constexpr auto kStopAfter = std::chrono::seconds(30);
++  constexpr double kSlowSpeed = 0.3;
++  // iTime never jumps by more than this per advance.
++  constexpr double kMaxStepSeconds = 1.0;
++  // How often a running compile is polled (each poll repaints the greeter).
++  constexpr int kCompilePollMs = 100;
++  constexpr auto kFrameSlack = std::chrono::microseconds(1500);
++  constexpr auto kTargetIdle = std::chrono::seconds(30);
++  constexpr int kMaxChannelImageSize = 2048;
++  constexpr GLenum kCompletionStatusKhr = 0x91B1; // GL_COMPLETION_STATUS_KHR
++
++  // Saves the GL state a shader frame touches and restores it on scope exit.
++  class StateGuard {
++  public:
++    StateGuard() {
++      glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &m_drawFbo);
++      glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &m_readFbo);
++      glGetIntegerv(GL_VIEWPORT, m_viewport);
++      glGetIntegerv(GL_CURRENT_PROGRAM, &m_program);
++      glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &m_vao);
++      glGetIntegerv(GL_ACTIVE_TEXTURE, &m_activeTexture);
++      for (int unit = 0; unit < kUnits; ++unit) {
++        glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + unit));
++        glGetIntegerv(GL_TEXTURE_BINDING_2D, &m_textures[unit]);
++        glGetIntegerv(GL_SAMPLER_BINDING, &m_samplers[unit]);
++      }
++      glGetFloatv(GL_COLOR_CLEAR_VALUE, m_clearColor);
++      m_scissor = glIsEnabled(GL_SCISSOR_TEST);
++      m_blend = glIsEnabled(GL_BLEND);
++      m_depthTest = glIsEnabled(GL_DEPTH_TEST);
++      m_cullFace = glIsEnabled(GL_CULL_FACE);
++      m_stencilTest = glIsEnabled(GL_STENCIL_TEST);
++      glGetBooleanv(GL_COLOR_WRITEMASK, m_colorMask);
++    }
++
++    ~StateGuard() {
++      glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(m_drawFbo));
++      glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(m_readFbo));
++      glViewport(m_viewport[0], m_viewport[1], m_viewport[2], m_viewport[3]);
++      glUseProgram(static_cast<GLuint>(m_program));
++      glBindVertexArray(static_cast<GLuint>(m_vao));
++      for (int unit = 0; unit < kUnits; ++unit) {
++        glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + unit));
++        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(m_textures[unit]));
++        glBindSampler(static_cast<GLuint>(unit), static_cast<GLuint>(m_samplers[unit]));
++      }
++      glClearColor(m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]);
++      glActiveTexture(static_cast<GLenum>(m_activeTexture));
++      set(GL_SCISSOR_TEST, m_scissor);
++      set(GL_BLEND, m_blend);
++      set(GL_DEPTH_TEST, m_depthTest);
++      set(GL_CULL_FACE, m_cullFace);
++      set(GL_STENCIL_TEST, m_stencilTest);
++      glColorMask(m_colorMask[0], m_colorMask[1], m_colorMask[2], m_colorMask[3]);
++    }
++
++    StateGuard(const StateGuard&) = delete;
++    StateGuard& operator=(const StateGuard&) = delete;
++
++  private:
++    static constexpr int kUnits = 4;
++
++    static void set(GLenum cap, GLboolean on) {
++      if (on == GL_TRUE) {
++        glEnable(cap);
++      } else {
++        glDisable(cap);
++      }
++    }
++
++    GLint m_drawFbo = 0, m_readFbo = 0, m_viewport[4] = {}, m_program = 0, m_vao = 0;
++    GLint m_activeTexture = GL_TEXTURE0, m_textures[kUnits] = {}, m_samplers[kUnits] = {};
++    GLfloat m_clearColor[4] = {};
++    GLboolean m_scissor = GL_FALSE, m_blend = GL_FALSE, m_depthTest = GL_FALSE, m_cullFace = GL_FALSE;
++    GLboolean m_stencilTest = GL_FALSE, m_colorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
++  };
++
++  std::optional<std::string> readFile(const std::string& path) {
++    std::ifstream in(path, std::ios::binary);
++    if (!in) {
++      return std::nullopt;
++    }
++    std::stringstream text;
++    text << in.rdbuf();
++    return text.str();
++  }
++
++  bool hasExtension(std::string_view name) {
++    GLint count = 0;
++    glGetIntegerv(GL_NUM_EXTENSIONS, &count);
++    for (GLint i = 0; i < count; ++i) {
++      const auto* ext = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(i)));
++      if (ext != nullptr && name == ext) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  std::string shortLog(std::string log) {
++    while (!log.empty() && (log.back() == '\0' || log.back() == '\n')) {
++      log.pop_back();
++    }
++    constexpr std::size_t kMax = 600;
++    if (log.size() > kMax) {
++      log.resize(kMax);
++      log += " ...";
++    }
++    return log;
++  }
++
++  const char* passName(int pass) {
++    static constexpr const char* kNames[] = {"buffer A", "buffer B", "buffer C", "buffer D"};
++    return pass >= 0 && pass < 4 ? kNames[pass] : "image";
++  }
++
++} // namespace
++
++ShaderLive& ShaderLive::instance() {
++  // Intentionally leaked: GL objects must not be destroyed after the context is gone.
++  static auto* live = new ShaderLive();
++  return *live;
++}
++
++ShaderLive::ShaderLive() = default;
++ShaderLive::~ShaderLive() = default;
++
++bool ShaderLive::configure(const GreeterShaderParams& params) {
++  if (m_configured) {
++    return usable();
++  }
++  m_configured = true;
++  m_params = params;
++
++  auto main = readFile(params.main);
++  if (!main.has_value()) {
++    kLog.warn("cannot read {}", params.main);
++    m_failed = true;
++    return false;
++  }
++  m_mainDirectives = shader::parseDirectives(*main);
++  m_simMaxHeight = m_mainDirectives.simMaxHeight;
++  const shader::SharedSplit split = shader::splitSharedConsts(*main);
++  std::string commonFile;
++  if (!params.common.empty()) {
++    auto text = readFile(params.common);
++    if (!text.has_value()) {
++      kLog.warn("cannot read {}", params.common);
++      m_failed = true;
++      return false;
++    }
++    commonFile = std::move(*text);
++  }
++  m_commonSource = shader::commonSource(split.shared, commonFile);
++  m_mainSource = split.main;
++  for (std::size_t i = 0; i < 4; ++i) {
++    if (params.buffers[i].empty()) {
++      continue;
++    }
++    auto text = readFile(params.buffers[i]);
++    if (!text.has_value()) {
++      kLog.warn("cannot read {}", params.buffers[i]);
++      m_failed = true;
++      return false;
++    }
++    m_bufferDirectives[i] = shader::parseDirectives(*text);
++    m_bufferSources[i] = std::move(*text);
++    m_hasBuffer[i] = true;
++  }
++
++  m_time = std::max(0.0, params.time);
++  const auto now = std::chrono::steady_clock::now();
++  m_lastAdvance = now;
++  m_lastActivity = now; // the greeter appearing counts as activity
++  m_phase = Phase::Stopped;
++  applyPhase(Phase::Full);
++  int buffers = 0;
++  for (const bool has : m_hasBuffer) {
++    buffers += has ? 1 : 0;
++  }
++  kLog.info("loaded {} ({} buffer pass{}), from iTime {:.2f}", params.main, buffers, buffers == 1 ? "" : "es", m_time);
++  return true;
++}
++
++void ShaderLive::fail() {
++  m_failed = true;
++  for (auto& pending : m_pending) {
++    glDeleteShader(pending.vertex);
++    glDeleteShader(pending.fragment);
++    glDeleteProgram(pending.program);
++  }
++  m_pending.clear();
++  m_compiling = false;
++  for (Pass* pass : {&m_image, &m_buffers[0], &m_buffers[1], &m_buffers[2], &m_buffers[3]}) {
++    if (pass->program != 0) {
++      glDeleteProgram(pass->program);
++    }
++    *pass = Pass{};
++  }
++  for (auto& [consumer, target] : m_targets) {
++    destroyTarget(target);
++  }
++  m_targets.clear();
++}
++
++void ShaderLive::applyPhase(Phase phase) {
++  if (phase == m_phase) {
++    return;
++  }
++  m_phase = phase;
++  switch (phase) {
++  case Phase::Full:
++    m_speed = m_params.speed;
++    break;
++  case Phase::Slow:
++    m_speed = m_params.speed * kSlowSpeed;
++    break;
++  case Phase::Stopped:
++    m_speed = 0.0;
++    break;
++  }
++  static constexpr const char* kNames[] = {"full speed", "slow", "stopped"};
++  kLog.info("motion: {}", kNames[static_cast<int>(phase)]);
++}
++
++void ShaderLive::noteActivity() {
++  if (!usable()) {
++    return;
++  }
++  m_lastActivity = std::chrono::steady_clock::now();
++  if (m_phase != Phase::Full) {
++    advance(); // bring time current so the ramp starts from now
++    applyPhase(Phase::Full);
++  }
++}
++
++bool ShaderLive::animating() const { return ready() && m_speed > 0.0; }
++
++void ShaderLive::advance() {
++  if (!usable()) {
++    return;
++  }
++  const auto now = std::chrono::steady_clock::now();
++  const double dt = std::min(std::chrono::duration<double>(now - m_lastAdvance).count(), kMaxStepSeconds);
++  m_lastAdvance = now;
++  if (dt > 0.0 && animating()) {
++    m_time += dt * m_speed;
++    ++m_generation;
++  }
++  const auto idle = now - m_lastActivity;
++  applyPhase(idle >= kStopAfter ? Phase::Stopped : idle >= kSlowAfter ? Phase::Slow : Phase::Full);
++}
++
++int ShaderLive::frameDelayMs(const void* consumer) const {
++  if (!usable()) {
++    return -1;
++  }
++  const auto it = m_consumers.find(consumer);
++  if (it == m_consumers.end()) {
++    return 0; // first paint starts the compile
++  }
++  if (ready() && it->second.paintedGeneration == m_generation && !animating()) {
++    return -1;
++  }
++  // Compiling: a paint polls the driver, so paints come at the poll interval.
++  const auto interval = !ready()
++      ? std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::milliseconds(kCompilePollMs))
++      : std::chrono::duration_cast<std::chrono::steady_clock::duration>(
++            std::chrono::duration<double>(1.0 / static_cast<double>(std::max(1, m_params.fps)))
++        );
++  const auto due = it->second.lastPaint + interval;
++  const auto now = std::chrono::steady_clock::now();
++  if (now + kFrameSlack >= due) {
++    return 0;
++  }
++  return static_cast<int>(std::chrono::ceil<std::chrono::milliseconds>(due - now).count());
++}
++
++bool ShaderLive::ensureCommonObjects() {
++  if (m_vao != 0) {
++    return true;
++  }
++  glGenVertexArrays(1, &m_vao);
++  glGenTextures(1, &m_blackTexture);
++  GLint previous = 0;
++  glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
++  glBindTexture(GL_TEXTURE_2D, m_blackTexture);
++  const std::uint8_t black[4] = {0, 0, 0, 255};
++  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, black);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++  glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previous));
++  glGenSamplers(1, &m_nearestSampler);
++  glGenSamplers(1, &m_linearSampler);
++  for (const GLuint sampler : {m_nearestSampler, m_linearSampler}) {
++    glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++  }
++  glSamplerParameteri(m_nearestSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++  glSamplerParameteri(m_nearestSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++  glSamplerParameteri(m_linearSampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++  glSamplerParameteri(m_linearSampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++  return true;
++}
++
++bool ShaderLive::startCompile() {
++  // A synchronous compile can take many seconds (neko: 27 s) and would freeze
++  // the login form; without background compiles the still stays.
++  if (!hasExtension("GL_KHR_parallel_shader_compile")) {
++    kLog.info("no GL_KHR_parallel_shader_compile; the greeter keeps the still");
++    return false;
++  }
++  using MaxThreads = void (*)(GLuint);
++  if (auto* fn = reinterpret_cast<MaxThreads>(eglGetProcAddress("glMaxShaderCompilerThreadsKHR"))) {
++    fn(0xFFFFFFFFU); // let the driver pick
++  }
++
++  std::vector<std::pair<int, std::string>> sources;
++  sources.emplace_back(shader::kImagePass, shader::assembleFragmentSource(m_mainSource, true, m_commonSource));
++  for (std::size_t i = 0; i < 4; ++i) {
++    if (m_hasBuffer[i]) {
++      sources.emplace_back(
++          static_cast<int>(i), shader::assembleFragmentSource(m_bufferSources[i], false, m_commonSource)
++      );
++    }
++  }
++  const std::string vertex(shader::vertexSource());
++  for (const auto& [pass, fragment] : sources) {
++    PendingPass pending{.pass = pass};
++    pending.vertex = glCreateShader(GL_VERTEX_SHADER);
++    pending.fragment = glCreateShader(GL_FRAGMENT_SHADER);
++    for (const auto& [id, text] : {std::pair{pending.vertex, &vertex}, std::pair{pending.fragment, &fragment}}) {
++      const char* source = text->c_str();
++      glShaderSource(id, 1, &source, nullptr);
++      glCompileShader(id);
++    }
++    pending.program = glCreateProgram();
++    glAttachShader(pending.program, pending.vertex);
++    glAttachShader(pending.program, pending.fragment);
++    glLinkProgram(pending.program);
++    m_pending.push_back(pending);
++  }
++  m_compiling = true;
++  m_compileStarted = std::chrono::steady_clock::now();
++  return true;
++}
++
++void ShaderLive::pollCompile() {
++  for (const auto& pending : m_pending) {
++    GLint done = GL_FALSE;
++    glGetProgramiv(pending.program, kCompletionStatusKhr, &done);
++    if (done != GL_TRUE) {
++      return;
++    }
++  }
++  m_compiling = false;
++  bool ok = true;
++  for (auto& pending : m_pending) {
++    std::string error;
++    GLint status = GL_FALSE;
++    for (const GLuint id : {pending.vertex, pending.fragment}) {
++      glGetShaderiv(id, GL_COMPILE_STATUS, &status);
++      if (status != GL_TRUE && error.empty()) {
++        GLint length = 0;
++        glGetShaderiv(id, GL_INFO_LOG_LENGTH, &length);
++        std::string log(static_cast<std::size_t>(std::max(length, 1)), '\0');
++        glGetShaderInfoLog(id, length, nullptr, log.data());
++        error = shortLog(std::move(log));
++      }
++    }
++    glGetProgramiv(pending.program, GL_LINK_STATUS, &status);
++    if (error.empty() && status != GL_TRUE) {
++      GLint length = 0;
++      glGetProgramiv(pending.program, GL_INFO_LOG_LENGTH, &length);
++      std::string log(static_cast<std::size_t>(std::max(length, 1)), '\0');
++      glGetProgramInfoLog(pending.program, length, nullptr, log.data());
++      error = shortLog(std::move(log));
++    }
++    glDeleteShader(pending.vertex);
++    glDeleteShader(pending.fragment);
++    pending.vertex = pending.fragment = 0;
++    if (!error.empty()) {
++      kLog.warn("{} pass: {}", passName(pending.pass), error);
++      ok = false;
++      continue;
++    }
++    Pass& pass = pending.pass == shader::kImagePass ? m_image : m_buffers[static_cast<std::size_t>(pending.pass)];
++    pass.program = std::exchange(pending.program, 0);
++    Uniforms& u = pass.uniforms;
++    const GLuint id = pass.program;
++    u.resolution = glGetUniformLocation(id, "iResolution");
++    u.time = glGetUniformLocation(id, "iTime");
++    u.timeDelta = glGetUniformLocation(id, "iTimeDelta");
++    u.frame = glGetUniformLocation(id, "iFrame");
++    u.frameRate = glGetUniformLocation(id, "iFrameRate");
++    u.mouse = glGetUniformLocation(id, "iMouse");
++    u.date = glGetUniformLocation(id, "iDate");
++    u.sampleRate = glGetUniformLocation(id, "iSampleRate");
++    u.channelTime = glGetUniformLocation(id, "iChannelTime");
++    u.channelResolution = glGetUniformLocation(id, "iChannelResolution");
++    u.screenOffset = glGetUniformLocation(id, "iScreenOffset");
++    u.desktopResolution = glGetUniformLocation(id, "iDesktopResolution");
++    u.screenIndex = glGetUniformLocation(id, "iScreenIndex");
++    u.screenCount = glGetUniformLocation(id, "iScreenCount");
++    u.substep = glGetUniformLocation(id, "iSubstep");
++    u.substeps = glGetUniformLocation(id, "iSubsteps");
++    u.virtualDesktopCount = glGetUniformLocation(id, "iVirtualDesktopCount");
++    u.windowCount = glGetUniformLocation(id, "iWindowCount");
++    for (int c = 0; c < 4; ++c) {
++      const std::string name = "iChannel" + std::to_string(c);
++      u.channel[c] = glGetUniformLocation(id, name.c_str());
++    }
++  }
++  for (auto& pending : m_pending) {
++    if (pending.program != 0) {
++      glDeleteProgram(pending.program);
++    }
++  }
++  m_pending.clear();
++  if (!ok) {
++    kLog.warn("{} does not compile; the greeter keeps the still", m_params.main);
++    fail();
++    return;
++  }
++
++  m_image.inputs = shader::routeChannels(m_mainDirectives, m_mainDirectives, shader::kImagePass, m_hasBuffer);
++  for (std::size_t i = 0; i < 4; ++i) {
++    if (m_hasBuffer[i]) {
++      m_buffers[i].inputs =
++          shader::routeChannels(m_bufferDirectives[i], m_mainDirectives, static_cast<int>(i), m_hasBuffer);
++      m_buffers[i].perFrame = m_bufferDirectives[i].substeps == 1;
++    }
++  }
++  loadChannelImages();
++  // The still was a moment ago on the desktop: start counting from now.
++  m_lastAdvance = std::chrono::steady_clock::now();
++  ++m_generation;
++  kLog.info(
++      "ready in {} ms",
++      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_compileStarted).count()
++  );
++}
++
++void ShaderLive::loadChannelImages() {
++  for (std::size_t slot = 0; slot < 4; ++slot) {
++    const std::string& path = m_params.textures[slot];
++    if (path.empty()) {
++      continue;
++    }
++    std::string error;
++    auto image = loadImageFile(path, kMaxChannelImageSize, &error);
++    if (!image.has_value() || image->width <= 0 || image->height <= 0) {
++      kLog.warn("cannot load channel image {}: {}", path, error.empty() ? "empty image" : error);
++      continue;
++    }
++    // Shadertoy's "vflip": the image's bottom row is texture row 0.
++    const auto rowBytes = static_cast<std::size_t>(image->width) * 4;
++    std::vector<std::uint8_t> flipped(image->rgba.size());
++    for (int y = 0; y < image->height; ++y) {
++      std::memcpy(
++          flipped.data() + static_cast<std::size_t>(image->height - 1 - y) * rowBytes,
++          image->rgba.data() + static_cast<std::size_t>(y) * rowBytes, rowBytes
++      );
++    }
++    ChannelImage& out = m_images[slot];
++    GLint previous = 0;
++    GLint unpackAlignment = 4;
++    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
++    glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpackAlignment);
++    glGenTextures(1, &out.texture);
++    glBindTexture(GL_TEXTURE_2D, out.texture);
++    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image->width, image->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, flipped.data());
++    glPixelStorei(GL_UNPACK_ALIGNMENT, unpackAlignment);
++    glGenerateMipmap(GL_TEXTURE_2D);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
++    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previous));
++    out.width = image->width;
++    out.height = image->height;
++  }
++}
++
++bool ShaderLive::ensureTarget(Target& target, int width, int height) {
++  if (target.fbo != 0 && target.width == width && target.height == height) {
++    return true;
++  }
++  destroyTarget(target);
++  GLint previousTexture = 0;
++  GLint previousFbo = 0;
++  GLfloat previousClear[4] = {};
++  glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
++  glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFbo);
++  glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClear);
++  const auto make = [](GLenum format, int w, int h, GLuint& fbo, GLuint& texture, bool clear) {
++    glGenTextures(1, &texture);
++    glBindTexture(GL_TEXTURE_2D, texture);
++    const GLenum type = format == GL_RGBA8 ? GL_UNSIGNED_BYTE : (format == GL_RGBA16F ? GL_HALF_FLOAT : GL_FLOAT);
++    glTexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(format), w, h, 0, GL_RGBA, type, nullptr);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    glGenFramebuffers(1, &fbo);
++    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
++    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
++    const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
++    if (complete && clear) {
++      glClearColor(0.0F, 0.0F, 0.0F, 0.0F); // simulations start from zero
++      glClear(GL_COLOR_BUFFER_BIT);
++    }
++    return complete;
++  };
++
++  bool ok = make(GL_RGBA8, width, height, target.fbo, target.texture, false);
++  const bool anyBuffer = std::ranges::any_of(m_hasBuffer, [](bool has) { return has; });
++  if (ok && anyBuffer) {
++    const auto [simWidth, simHeight] = shader::simulationSize(width, height, m_simMaxHeight);
++    target.simWidth = simWidth;
++    target.simHeight = simHeight;
++    if (m_bufferFormat == 0) {
++      // Shadertoy's buffers are 32-bit float; fall back where the driver cannot render to them.
++      for (const GLenum format : {GL_RGBA32F, GL_RGBA16F, GL_RGBA8}) {
++        GLuint fbo = 0;
++        GLuint texture = 0;
++        const bool usable = make(format, 1, 1, fbo, texture, false);
++        glDeleteFramebuffers(1, &fbo);
++        glDeleteTextures(1, &texture);
++        if (usable) {
++          m_bufferFormat = format;
++          break;
++        }
++      }
++      if (m_bufferFormat == 0) {
++        m_bufferFormat = GL_RGBA8;
++      }
++      if (m_bufferFormat == GL_RGBA32F && !hasExtension("GL_OES_texture_float_linear")) {
++        glSamplerParameteri(m_linearSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++        glSamplerParameteri(m_linearSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++      }
++    }
++    for (std::size_t i = 0; ok && i < 4; ++i) {
++      if (!m_hasBuffer[i]) {
++        continue;
++      }
++      BufferSurface& surface = target.buffers[i];
++      ok = make(m_bufferFormat, simWidth, simHeight, surface.fbo[0], surface.texture[0], true)
++          && make(m_bufferFormat, simWidth, simHeight, surface.fbo[1], surface.texture[1], true);
++    }
++  }
++  glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
++  glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFbo));
++  glClearColor(previousClear[0], previousClear[1], previousClear[2], previousClear[3]);
++  if (!ok) {
++    kLog.warn("cannot create a {}x{} render target", width, height);
++    destroyTarget(target);
++    return false;
++  }
++  target.width = width;
++  target.height = height;
++  return true;
++}
++
++void ShaderLive::destroyTarget(Target& target) {
++  glDeleteFramebuffers(1, &target.fbo);
++  glDeleteTextures(1, &target.texture);
++  for (BufferSurface& surface : target.buffers) {
++    glDeleteFramebuffers(2, surface.fbo);
++    glDeleteTextures(2, surface.texture);
++  }
++  target = Target{};
++}
++
++void ShaderLive::setUniforms(
++    const Uniforms& u, float width, float height, double timeDelta, std::int32_t frame, int substep, int substeps
++) const {
++  const auto time = static_cast<float>(m_time);
++  glUniform3f(u.resolution, width, height, 1.0F);
++  glUniform1f(u.time, time);
++  glUniform1f(u.timeDelta, static_cast<float>(timeDelta));
++  glUniform1i(u.frame, frame);
++  glUniform1f(u.frameRate, static_cast<float>(m_params.fps));
++  glUniform4f(u.mouse, 0.0F, 0.0F, 0.0F, 0.0F);
++  const std::time_t now = std::time(nullptr);
++  std::tm local{};
++  localtime_r(&now, &local);
++  glUniform4f(
++      u.date, static_cast<float>(local.tm_year + 1900), static_cast<float>(local.tm_mon),
++      static_cast<float>(local.tm_mday), static_cast<float>(local.tm_hour * 3600 + local.tm_min * 60 + local.tm_sec)
++  );
++  glUniform1f(u.sampleRate, 44100.0F);
++  const float channelTimes[4] = {time, time, time, time};
++  glUniform1fv(u.channelTime, 4, channelTimes);
++  glUniform2f(u.screenOffset, 0.0F, 0.0F);
++  glUniform2f(u.desktopResolution, width, height);
++  glUniform1i(u.screenIndex, 0);
++  glUniform1i(u.screenCount, 1);
++  glUniform1i(u.substep, substep);
++  glUniform1i(u.substeps, substeps);
++  glUniform1i(u.virtualDesktopCount, 1);
++  glUniform1i(u.windowCount, 0); // no windows at the greeter; the arrays stay zero
++}
++
++void ShaderLive::bindInputs(const Pass& pass, const Target& target, bool bufferPass) const {
++  float resolutions[12] = {};
++  for (std::size_t c = 0; c < 4; ++c) {
++    GLuint texture = m_blackTexture;
++    GLuint sampler = 0;
++    const shader::ChannelSource& input = pass.inputs[c];
++    if (input.kind == shader::ChannelSource::Kind::Texture && input.slot >= 0 && input.slot < 4) {
++      const ChannelImage& image = m_images[static_cast<std::size_t>(input.slot)];
++      if (image.texture != 0) {
++        texture = image.texture;
++        resolutions[c * 3] = static_cast<float>(image.width);
++        resolutions[c * 3 + 1] = static_cast<float>(image.height);
++        resolutions[c * 3 + 2] = 1.0F;
++      }
++    } else if (input.kind == shader::ChannelSource::Kind::Buffer && input.slot >= 0 && input.slot < 4) {
++      const BufferSurface& surface = target.buffers[static_cast<std::size_t>(input.slot)];
++      if (surface.texture[0] != 0) {
++        texture = surface.texture[surface.front];
++        sampler = bufferPass ? m_nearestSampler : m_linearSampler;
++        resolutions[c * 3] = static_cast<float>(target.simWidth);
++        resolutions[c * 3 + 1] = static_cast<float>(target.simHeight);
++        resolutions[c * 3 + 2] = 1.0F;
++      }
++    }
++    glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + c));
++    glBindTexture(GL_TEXTURE_2D, texture);
++    glBindSampler(static_cast<GLuint>(c), sampler);
++    glUniform1i(pass.uniforms.channel[c], static_cast<GLint>(c));
++  }
++  glActiveTexture(GL_TEXTURE0);
++  glUniform3fv(pass.uniforms.channelResolution, 4, resolutions);
++}
++
++void ShaderLive::render(Target& target) {
++  StateGuard guard;
++  glDisable(GL_BLEND);
++  glDisable(GL_DEPTH_TEST);
++  glDisable(GL_SCISSOR_TEST);
++  glDisable(GL_CULL_FACE);
++  glDisable(GL_STENCIL_TEST);
++  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
++  glBindVertexArray(m_vao);
++
++  const double frameDelta = target.lastTime < 0.0 ? 1.0 / static_cast<double>(std::max(1, m_params.fps))
++                                                  : std::max(0.0, m_time - target.lastTime);
++  target.lastTime = m_time;
++
++  if (target.simWidth > 0) {
++    const int substeps = shader::substepCount(frameDelta);
++    const auto simWidth = static_cast<float>(target.simWidth);
++    const auto simHeight = static_cast<float>(target.simHeight);
++    glViewport(0, 0, target.simWidth, target.simHeight);
++    for (int step = 0; step < substeps; ++step) {
++      const bool last = step + 1 == substeps;
++      for (std::size_t i = 0; i < 4; ++i) {
++        const Pass& pass = m_buffers[i];
++        if (!m_hasBuffer[i] || pass.program == 0 || (pass.perFrame && !last)) {
++          continue;
++        }
++        BufferSurface& surface = target.buffers[i];
++        const int write = 1 - surface.front;
++        glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo[write]);
++        glUseProgram(pass.program);
++        setUniforms(
++            pass.uniforms, simWidth, simHeight, pass.perFrame ? frameDelta : frameDelta / substeps, target.frame,
++            pass.perFrame ? 0 : step, pass.perFrame ? 1 : substeps
++        );
++        bindInputs(pass, target, true);
++        glDrawArrays(GL_TRIANGLES, 0, 3);
++        surface.front = write;
++      }
++    }
++  }
++
++  glBindFramebuffer(GL_FRAMEBUFFER, target.fbo);
++  glViewport(0, 0, target.width, target.height);
++  glUseProgram(m_image.program);
++  setUniforms(
++      m_image.uniforms, static_cast<float>(target.width), static_cast<float>(target.height), frameDelta, target.frame,
++      0, 1
++  );
++  bindInputs(m_image, target, false);
++  glDrawArrays(GL_TRIANGLES, 0, 3);
++  ++target.frame;
++  target.renderedGeneration = m_generation;
++}
++
++bool ShaderLive::drawInto(int x, int y, int width, int height, const void* consumer) {
++  if (width <= 0 || height <= 0 || !usable()) {
++    return false;
++  }
++  ConsumerState& state = m_consumers[consumer];
++  const auto now = std::chrono::steady_clock::now();
++  if (!ready()) {
++    // Compile with the context current: start once, then poll on later paints.
++    if (!ensureCommonObjects() || (!m_compiling && !startCompile())) {
++      fail();
++      return false;
++    }
++    pollCompile();
++    state.lastPaint = now;
++    if (!ready()) {
++      return false; // the still underneath stays
++    }
++  }
++
++  for (auto it = m_targets.begin(); it != m_targets.end();) {
++    if (it->first != consumer && now - it->second.lastUsed > kTargetIdle) {
++      destroyTarget(it->second);
++      it = m_targets.erase(it);
++    } else {
++      ++it;
++    }
++  }
++
++  const float scale = std::clamp(m_params.renderScale, 0.1F, 1.0F);
++  const int w = std::max(1, static_cast<int>(std::lround(static_cast<float>(width) * scale)));
++  const int h = std::max(1, static_cast<int>(std::lround(static_cast<float>(height) * scale)));
++  Target& target = m_targets[consumer];
++  if (!ensureTarget(target, w, h)) {
++    m_targets.erase(consumer);
++    return false;
++  }
++  target.lastUsed = now;
++  if (target.renderedGeneration != m_generation) {
++    render(target);
++  }
++
++  // The image pass stores the top row first (Shadertoy's wrapper flips fragCoord),
++  // so the blit flips it back into the bottom-up framebuffer. A shader with its own
++  // main() renders bottom-up already.
++  const bool ownMain = shader::classifySource(m_mainSource) == shader::SourceKind::Complete;
++  GLint readFbo = 0;
++  glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &readFbo);
++  glBindFramebuffer(GL_READ_FRAMEBUFFER, target.fbo);
++  glBlitFramebuffer(
++      0, 0, w, h, x, ownMain ? y : y + height, x + width, ownMain ? y + height : y, GL_COLOR_BUFFER_BIT,
++      w == width && h == height ? GL_NEAREST : GL_LINEAR
++  );
++  glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(readFbo));
++
++  state.paintedGeneration = m_generation;
++  state.lastPaint = now;
++  return true;
++}
++
++void ShaderLive::forgetConsumer(const void* consumer) {
++  m_consumers.erase(consumer);
++  // GL names go when another output draws with the context current (idle eviction).
++  if (const auto it = m_targets.find(consumer); it != m_targets.end()) {
++    it->second.lastUsed = {};
++  }
++}
+diff --git a/src/greeter/shader_live.h b/src/greeter/shader_live.h
+new file mode 100644
+index 0000000..fa82bd6
+--- /dev/null
++++ b/src/greeter/shader_live.h
+@@ -0,0 +1,174 @@
++#pragma once
++
++// Live "shader:" wallpaper for the greeter: the one shader the shell synced
++// ([appearance.shader] + its wallpaper-shader* files), run with the shell's
++// Shadertoy wrapper (render/shader/shader_source). Buffer passes and channel
++// images work as on the desktop; the KDE window inputs read "no windows".
++//
++// It starts from the synced still's iTime, so a stateless shader carries on from
++// the still without a jump. Compiles run in the background
++// (GL_KHR_parallel_shader_compile); the still stays until they finish. Without
++// that extension the greeter keeps the still: a slow compile would block login.
++// It slows down and then stops when nobody touches the greeter, and speeds up again
++// on any input, like the live Sequoia scene.
++//
++// Main thread only. drawInto() must run while the greeter's GL context is current.
++
++#include "greeter/appearance_config.h"
++#include "render/shader/shader_source.h"
++
++#include <GLES3/gl3.h>
++#include <array>
++#include <chrono>
++#include <cstdint>
++#include <map>
++#include <optional>
++#include <string>
++#include <unordered_map>
++#include <vector>
++
++class ShaderLive {
++public:
++  static ShaderLive& instance();
++
++  ShaderLive(const ShaderLive&) = delete;
++  ShaderLive& operator=(const ShaderLive&) = delete;
++
++  // Reads the shader files once; later calls are ignored (one sync per greeter
++  // start). False when the shader cannot be used.
++  bool configure(const GreeterShaderParams& params);
++  // Usable, or still compiling.
++  [[nodiscard]] bool usable() const noexcept { return m_configured && !m_failed; }
++  // Compiled and linked: frames can be drawn.
++  [[nodiscard]] bool ready() const noexcept { return usable() && m_image.program != 0; }
++
++  // Any key, pointer or scroll event: back to full speed.
++  void noteActivity();
++
++  // Brings iTime and the idle ramp up to now, and polls a running compile.
++  // Cheap; call once per loop turn while the GL context is current.
++  void advance();
++
++  // -1: `consumer` needs no frame; 0: paint now; otherwise milliseconds until the
++  // next frame is due (frame cap while moving, or the compile poll).
++  [[nodiscard]] int frameDelayMs(const void* consumer) const;
++
++  // Renders the current frame at width x height (scaled by the render scale) and
++  // blits it into the bound draw framebuffer at (x, y), in buffer pixels with y
++  // counted from the bottom as GL does. False when nothing was drawn (the still
++  // underneath stays visible).
++  bool drawInto(int x, int y, int width, int height, const void* consumer);
++
++  void forgetConsumer(const void* consumer);
++
++private:
++  ShaderLive();
++  ~ShaderLive();
++
++  struct Uniforms {
++    GLint resolution = -1, time = -1, timeDelta = -1, frame = -1, frameRate = -1, mouse = -1, date = -1;
++    GLint sampleRate = -1, channelTime = -1, channelResolution = -1, screenOffset = -1, desktopResolution = -1;
++    GLint screenIndex = -1, screenCount = -1, substep = -1, substeps = -1, virtualDesktopCount = -1;
++    GLint windowCount = -1;
++    GLint channel[4] = {-1, -1, -1, -1};
++  };
++
++  struct Pass {
++    GLuint program = 0;
++    Uniforms uniforms;
++    std::array<shader::ChannelSource, 4> inputs;
++    bool perFrame = false; // "@substeps 1"
++  };
++
++  struct PendingPass {
++    int pass = 0; // shader::kImagePass or a buffer index
++    GLuint program = 0;
++    GLuint vertex = 0;
++    GLuint fragment = 0;
++  };
++
++  struct BufferSurface {
++    GLuint fbo[2] = {0, 0};
++    GLuint texture[2] = {0, 0};
++    int front = 0;
++  };
++
++  struct Target {
++    int width = 0;
++    int height = 0;
++    GLuint fbo = 0; // image pass output, bottom row first (GL order)
++    GLuint texture = 0;
++    std::array<BufferSurface, 4> buffers;
++    int simWidth = 0;
++    int simHeight = 0;
++    std::int32_t frame = 0;
++    double lastTime = -1.0;
++    std::uint64_t renderedGeneration = 0;
++    std::chrono::steady_clock::time_point lastUsed{};
++  };
++
++  struct ConsumerState {
++    std::uint64_t paintedGeneration = 0;
++    std::chrono::steady_clock::time_point lastPaint{};
++  };
++
++  enum class Phase { Full, Slow, Stopped };
++  void applyPhase(Phase phase);
++
++  bool startCompile();
++  void pollCompile();
++  void fail();
++  bool ensureCommonObjects();
++  void loadChannelImages();
++  bool ensureTarget(Target& target, int width, int height);
++  void destroyTarget(Target& target);
++  void setUniforms(
++      const Uniforms& u, float width, float height, double timeDelta, std::int32_t frame, int substep, int substeps
++  ) const;
++  void bindInputs(const Pass& pass, const Target& target, bool bufferPass) const;
++  void render(Target& target);
++  [[nodiscard]] bool animating() const;
++
++  GreeterShaderParams m_params;
++  bool m_configured = false;
++  bool m_failed = false;
++
++  // Sources, read in configure(); compiled on the first advance() with GL current.
++  std::string m_mainSource;
++  std::array<std::string, 4> m_bufferSources; // "" = no buffer
++  std::string m_commonSource;
++  shader::Directives m_mainDirectives;
++  std::array<shader::Directives, 4> m_bufferDirectives;
++  std::array<bool, 4> m_hasBuffer{};
++  std::optional<int> m_simMaxHeight;
++
++  bool m_compiling = false;
++  std::vector<PendingPass> m_pending;
++  std::chrono::steady_clock::time_point m_compileStarted{};
++  Pass m_image;
++  std::array<Pass, 4> m_buffers;
++
++  struct ChannelImage {
++    GLuint texture = 0;
++    int width = 0;
++    int height = 0;
++  };
++  std::array<ChannelImage, 4> m_images; // by texture slot
++
++  GLuint m_vao = 0;
++  GLuint m_blackTexture = 0;
++  GLuint m_nearestSampler = 0;
++  GLuint m_linearSampler = 0;
++  GLenum m_bufferFormat = 0;
++
++  std::map<const void*, Target> m_targets;
++
++  double m_time = 0.0; // iTime
++  double m_speed = 1.0;
++  std::uint64_t m_generation = 1;
++  std::chrono::steady_clock::time_point m_lastAdvance{};
++  std::chrono::steady_clock::time_point m_lastActivity{};
++  Phase m_phase = Phase::Stopped;
++
++  std::unordered_map<const void*, ConsumerState> m_consumers;
++};
+diff --git a/src/greeter/shader_live_node.h b/src/greeter/shader_live_node.h
+new file mode 100644
+index 0000000..280c789
+--- /dev/null
++++ b/src/greeter/shader_live_node.h
+@@ -0,0 +1,29 @@
++#pragma once
++
++#include "greeter/shader_live.h"
++#include "render/scene/custom_draw_node.h"
++
++#include <cmath>
++
++// Draws the live shader over its own rectangle. Put it right after the
++// WallpaperNode, which keeps showing the synced still until the first live frame.
++class ShaderLiveNode : public CustomDrawNode {
++public:
++  explicit ShaderLiveNode(const void* consumer) : m_consumer(consumer) {}
++
++  // A new frame is due.
++  void invalidate() { markPaintDirty(); }
++
++  void draw(RenderBackend& /*backend*/, const CustomDrawContext& context) const override {
++    const Vec2 origin = context.transform.transformPoint(0.0f, 0.0f);
++    const int bufferHeight = static_cast<int>(std::lround(context.surfaceHeight * context.pixelScaleY));
++    const int x = static_cast<int>(std::lround(origin.x * context.pixelScaleX));
++    const int top = static_cast<int>(std::lround(origin.y * context.pixelScaleY));
++    const int width = static_cast<int>(std::lround(context.width * context.pixelScaleX));
++    const int height = static_cast<int>(std::lround(context.height * context.pixelScaleY));
++    ShaderLive::instance().drawInto(x, bufferHeight - top - height, width, height, m_consumer);
++  }
++
++private:
++  const void* m_consumer;
++};
+diff --git a/src/render/shader/shader_source.cpp b/src/render/shader/shader_source.cpp
+new file mode 100644
+index 0000000..ef94197
+--- /dev/null
++++ b/src/render/shader/shader_source.cpp
+@@ -0,0 +1,511 @@
++#include "render/shader/shader_source.h"
++
++#include <algorithm>
++#include <cctype>
++#include <cmath>
++#include <cstdlib>
++#include <regex>
++#include <system_error>
++
++namespace shader {
++
++  namespace {
++
++    std::string_view trim(std::string_view s) {
++      const auto first = s.find_first_not_of(" \t\r\n");
++      if (first == std::string_view::npos) {
++        return {};
++      }
++      const auto last = s.find_last_not_of(" \t\r\n");
++      return s.substr(first, last - first + 1);
++    }
++
++    std::string envOr(const char* name, std::string_view fallback) {
++      const char* value = std::getenv(name);
++      return value != nullptr && value[0] != '\0' ? std::string(value) : std::string(fallback);
++    }
++
++    // "~" or "~/..." under $HOME; anything else as given.
++    std::filesystem::path expandUserPath(const std::string& path) {
++      if (path == "~" || path.starts_with("~/")) {
++        const char* home = std::getenv("HOME");
++        if (home != nullptr && home[0] != '\0') {
++          return std::filesystem::path(home) / path.substr(path.size() > 1 ? 2 : 1);
++        }
++      }
++      return path;
++    }
++
++    bool isRegularFile(const std::filesystem::path& path) {
++      std::error_code ec;
++      return std::filesystem::is_regular_file(path, ec) && !ec;
++    }
++
++    // Source with comments blanked, so declarations inside comments do not count.
++    std::string withoutComments(std::string_view source) {
++      std::string out;
++      out.reserve(source.size());
++      for (std::size_t i = 0; i < source.size(); ++i) {
++        if (source[i] == '/' && i + 1 < source.size() && source[i + 1] == '/') {
++          while (i < source.size() && source[i] != '\n') {
++            ++i;
++          }
++          out.push_back('\n');
++        } else if (source[i] == '/' && i + 1 < source.size() && source[i + 1] == '*') {
++          i += 2;
++          while (i + 1 < source.size() && !(source[i] == '*' && source[i + 1] == '/')) {
++            out.push_back(source[i] == '\n' ? '\n' : ' ');
++            ++i;
++          }
++          ++i;
++        } else {
++          out.push_back(source[i]);
++        }
++      }
++      return out;
++    }
++
++    bool declaresUniform(const std::string& code, std::string_view name) {
++      const std::regex re("\\buniform\\s+[^;]*\\b" + std::string(name) + "\\b");
++      return std::regex_search(code, re);
++    }
++
++    // Declarations, in kUniformNames order.
++    constexpr std::string_view kUniformDecls[] = {
++        "uniform vec3 iResolution;",
++        "uniform float iTime;",
++        "uniform float iTimeDelta;",
++        "uniform int iFrame;",
++        "uniform float iFrameRate;",
++        "uniform vec4 iMouse;",
++        "uniform vec4 iDate;",
++        "uniform float iSampleRate;",
++        "uniform float iChannelTime[4];",
++        "uniform vec3 iChannelResolution[4];",
++        "uniform sampler2D iChannel0;",
++        "uniform sampler2D iChannel1;",
++        "uniform sampler2D iChannel2;",
++        "uniform sampler2D iChannel3;",
++        "uniform vec2 iScreenOffset;",
++        "uniform vec2 iDesktopResolution;",
++        "uniform int iScreenIndex;",
++        "uniform int iScreenCount;",
++        "uniform int iSubstep;",
++        "uniform int iSubsteps;",
++        "uniform int iWindowCount;",
++        "uniform vec4 iWindowRects[16];",
++        "uniform vec4 iWindowRectsPrev[16];",
++        "uniform vec2 iWindowVelocities[16];",
++        "uniform vec2 iMousePrev;",
++        "uniform int iVirtualDesktop;",
++        "uniform int iVirtualDesktopCount;",
++        "uniform float iVirtualDesktopAnim;",
++    };
++    static_assert(std::size(kUniformDecls) == std::size(kUniformNames));
++
++    constexpr std::string_view kPrecision = "precision highp float;\n"
++                                            "precision highp int;\n"
++                                            "precision highp sampler2D;\n";
++
++  } // namespace
++
++  namespace {
++
++    std::string lower(std::string_view s) {
++      std::string out(s);
++      for (char& c : out) {
++        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
++      }
++      return out;
++    }
++
++    // nullopt: unknown token, keep the default.
++    std::optional<ChannelSource> channelToken(std::string_view raw) {
++      const std::string t = lower(trim(raw));
++      if (t.empty()) {
++        return std::nullopt;
++      }
++      if (t == "none" || t == "off" || t == "-" || t == "-1") {
++        return ChannelSource{};
++      }
++      if (t == "audio" || t == "fft" || t == "music" || t == "20") {
++        return ChannelSource{.kind = ChannelSource::Kind::Unsupported, .token = "audio"};
++      }
++      if (t == "self") {
++        return ChannelSource{.kind = ChannelSource::Kind::Self};
++      }
++      static const std::regex kBuffer(R"(^(?:buffer)?([a-d])$)");
++      static const std::regex kBufferNumber(R"(^1([0-3])$)");
++      static const std::regex kTexture(R"(^(?:tex|texture|image)?([0-3])$)");
++      std::smatch m;
++      if (std::regex_match(t, m, kBuffer)) {
++        return ChannelSource{.kind = ChannelSource::Kind::Buffer, .slot = m[1].str()[0] - 'a'};
++      }
++      if (std::regex_match(t, m, kBufferNumber)) {
++        return ChannelSource{.kind = ChannelSource::Kind::Buffer, .slot = m[1].str()[0] - '0'};
++      }
++      if (std::regex_match(t, m, kTexture)) {
++        return ChannelSource{.kind = ChannelSource::Kind::Texture, .slot = m[1].str()[0] - '0'};
++      }
++      return std::nullopt;
++    }
++
++  } // namespace
++
++  Directives parseDirectives(std::string_view source) {
++    Directives out;
++    static const std::regex kSubstepsLine(R"(^\s*//\s*@substeps\s*:?\s*(\d+)\b.*$)", std::regex::icase);
++    static const std::regex kSimHeightLine(R"(^\s*//\s*@sim-max-height\s*:?\s*(\d+)\b.*$)", std::regex::icase);
++    static const std::regex kTextureLine(R"(^\s*//\s*@texture([0-3])\s*:?\s*(.*?)\s*$)", std::regex::icase);
++    static const std::regex kChannelsLine(R"(^\s*//\s*@channels?\s*:?\s*(.*?)\s*$)", std::regex::icase);
++    std::size_t start = 0;
++    for (int line = 0; line < 60 && start <= source.size(); ++line) {
++      const auto end = source.find('\n', start);
++      const std::string text(
++          source.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start)
++      );
++      std::smatch m;
++      if (std::regex_match(text, m, kTextureLine)) {
++        out.textures[static_cast<std::size_t>(m[1].str()[0] - '0')] = m[2].str();
++      } else if (std::regex_match(text, m, kSubstepsLine)) {
++        out.substeps = std::stoi(m[1].str().substr(0, 6));
++      } else if (std::regex_match(text, m, kSimHeightLine)) {
++        out.simMaxHeight = std::stoi(m[1].str().substr(0, 6));
++      } else if (std::regex_match(text, m, kChannelsLine)) {
++        out.hasChannels = true;
++        const std::string tokens = m[1].str();
++        std::size_t pos = 0;
++        for (std::size_t channel = 0; channel < 4 && pos <= tokens.size(); ++channel) {
++          const auto comma = tokens.find(',', pos);
++          const auto token =
++              std::string_view(tokens).substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
++          out.channels[channel] = channelToken(token);
++          if (comma == std::string::npos) {
++            break;
++          }
++          pos = comma + 1;
++        }
++      }
++      if (end == std::string_view::npos) {
++        break;
++      }
++      start = end + 1;
++    }
++    return out;
++  }
++
++  std::array<ChannelSource, 4>
++  routeChannels(const Directives& own, const Directives& main, int pass, const std::array<bool, 4>& buffers) {
++    using Kind = ChannelSource::Kind;
++    std::array<ChannelSource, 4> out;
++    for (int c = 0; c < 4; ++c) {
++      out[static_cast<std::size_t>(c)] =
++          pass == kImagePass ? ChannelSource{.kind = Kind::Texture, .slot = c} : ChannelSource{};
++    }
++    if (pass == kImagePass && buffers[0]) {
++      out[0] = ChannelSource{.kind = Kind::Buffer, .slot = 0};
++    } else if (pass >= 0 && pass < 4 && buffers[static_cast<std::size_t>(pass)]) {
++      out[0] = ChannelSource{.kind = Kind::Buffer, .slot = pass};
++    }
++    const Directives* routing = own.hasChannels ? &own : (main.hasChannels ? &main : nullptr);
++    if (routing != nullptr) {
++      for (std::size_t c = 0; c < 4; ++c) {
++        if (routing->channels[c].has_value()) {
++          out[c] = *routing->channels[c];
++        }
++      }
++    }
++    for (ChannelSource& source : out) {
++      if (source.kind == Kind::Self) {
++        source = ChannelSource{.kind = Kind::Buffer, .slot = pass == kImagePass ? 0 : pass};
++      }
++      if (source.kind == Kind::Buffer
++          && (source.slot < 0 || source.slot > 3 || !buffers[static_cast<std::size_t>(source.slot)])) {
++        source = ChannelSource{};
++      }
++    }
++    return out;
++  }
++
++  std::array<std::filesystem::path, 4> bufferFiles(const std::filesystem::path& mainFile) {
++    std::array<std::filesystem::path, 4> out;
++    const std::string stem = mainFile.stem().string();
++    for (std::size_t i = 0; i < 4; ++i) {
++      const auto candidate =
++          mainFile.parent_path() / (stem + "_buffer" + static_cast<char>('A' + i) + mainFile.extension().string());
++      if (isRegularFile(candidate)) {
++        out[i] = candidate;
++      }
++    }
++    return out;
++  }
++
++  int substepCount(double frameDeltaSeconds) {
++    if (!(frameDeltaSeconds > 0.0)) {
++      return 1;
++    }
++    return static_cast<int>(std::clamp<long>(std::lround(frameDeltaSeconds * 240.0), 1L, 8L));
++  }
++
++  std::pair<int, int> simulationSize(int width, int height, std::optional<int> maxHeight) {
++    if (!maxHeight.has_value() || *maxHeight <= 0 || height <= *maxHeight || height <= 0) {
++      return {width, height};
++    }
++    const double scale = static_cast<double>(*maxHeight) / static_cast<double>(height);
++    return {std::max(1, static_cast<int>(std::lround(width * scale))), *maxHeight};
++  }
++
++  std::filesystem::path libraryRoot(const std::filesystem::path& shaderFile) {
++    const auto dir = shaderFile.parent_path();
++    return dir.filename() == "Shaders" ? dir.parent_path() : dir;
++  }
++
++  std::optional<std::filesystem::path>
++  resolveTexturePath(std::string_view path, const std::filesystem::path& shaderFile) {
++    const std::string spec(trim(path));
++    if (spec.empty()) {
++      return std::nullopt;
++    }
++    if (spec.starts_with('/') || spec.starts_with('~')) {
++      const auto file = expandUserPath(spec);
++      return isRegularFile(file) ? std::optional(file) : std::nullopt;
++    }
++    for (const auto& base : {libraryRoot(shaderFile), shaderFile.parent_path()}) {
++      const auto candidate = (base / spec).lexically_normal();
++      if (isRegularFile(candidate)) {
++        return candidate;
++      }
++    }
++    return std::nullopt;
++  }
++
++  std::string textureOverrideKey(std::string_view spec, int slot) {
++    return std::string(spec) + ":" + std::to_string(slot);
++  }
++
++  std::string shaderSpec(std::string_view path) {
++    if (!isShaderPath(path)) {
++      return {};
++    }
++    return std::string(trim(path.substr(kPathPrefix.size())));
++  }
++
++  std::vector<std::filesystem::path> searchDirectories(const std::vector<std::string>& configured) {
++    std::vector<std::filesystem::path> dirs;
++    const auto add = [&dirs](const std::filesystem::path& dir) {
++      if (dir.empty()) {
++        return;
++      }
++      const auto normal = dir.lexically_normal();
++      if (std::ranges::find(dirs, normal) == dirs.end()) {
++        dirs.push_back(normal);
++      }
++    };
++    for (const auto& dir : configured) {
++      if (!trim(dir).empty()) {
++        add(expandUserPath(std::string(trim(dir))));
++      }
++    }
++    const std::string home = envOr("HOME", "");
++    const std::string dataHome = envOr("XDG_DATA_HOME", home.empty() ? "" : home + "/.local/share");
++    if (!dataHome.empty()) {
++      add(std::filesystem::path(dataHome) / "noctalia" / "shaders");
++    }
++    const std::string dataDirs = envOr("XDG_DATA_DIRS", "/usr/local/share:/usr/share");
++    std::size_t start = 0;
++    while (start <= dataDirs.size()) {
++      const auto end = dataDirs.find(':', start);
++      const std::string_view entry =
++          std::string_view(dataDirs).substr(start, end == std::string::npos ? std::string::npos : end - start);
++      if (!entry.empty()) {
++        add(std::filesystem::path(entry) / "noctalia" / "shaders");
++      }
++      if (end == std::string::npos) {
++        break;
++      }
++      start = end + 1;
++    }
++    return dirs;
++  }
++
++  std::optional<std::filesystem::path>
++  resolveShaderFile(std::string_view path, const std::vector<std::filesystem::path>& directories) {
++    const std::string spec = shaderSpec(path);
++    if (spec.empty()) {
++      return std::nullopt;
++    }
++    if (spec.starts_with('/') || spec.starts_with('~')) {
++      const std::filesystem::path file = expandUserPath(spec);
++      return isRegularFile(file) ? std::optional(file) : std::nullopt;
++    }
++    const std::filesystem::path rel(spec);
++    if (rel.is_absolute() || std::ranges::any_of(rel, [](const auto& part) { return part == ".."; })) {
++      return std::nullopt;
++    }
++    std::filesystem::path relFrag = rel;
++    relFrag += ".frag";
++    for (const auto& dir : directories) {
++      for (const auto& candidate : {dir / rel, dir / relFrag, dir / "Shaders" / relFrag}) {
++        if (isRegularFile(candidate)) {
++          return candidate;
++        }
++      }
++      std::error_code ec;
++      std::vector<std::filesystem::path> libraries;
++      for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
++        std::error_code typeEc;
++        if (entry.is_directory(typeEc) && !typeEc) {
++          libraries.push_back(entry.path());
++        }
++      }
++      std::ranges::sort(libraries);
++      for (const auto& library : libraries) {
++        const auto candidate = library / "Shaders" / relFrag;
++        if (isRegularFile(candidate)) {
++          return candidate;
++        }
++      }
++    }
++    return std::nullopt;
++  }
++
++  SourceKind classifySource(std::string_view source) {
++    const std::string code = withoutComments(source);
++    static const std::regex kVersion(R"((^|\n)\s*#\s*version\b)");
++    static const std::regex kMain(R"(\bvoid\s+main\s*\(\s*(void\s*)?\))");
++    if (std::regex_search(code, kVersion) && std::regex_search(code, kMain)) {
++      return SourceKind::Complete;
++    }
++    return SourceKind::MainImage;
++  }
++
++  std::string commonSource(std::string_view sharedConsts, std::string_view commonFile) {
++    std::string out(sharedConsts);
++    if (!commonFile.empty()) {
++      out += "#line 1 1\n";
++      out += commonFile;
++      if (!out.ends_with('\n')) {
++        out += '\n';
++      }
++    }
++    return out;
++  }
++
++  SharedSplit splitSharedConsts(std::string_view main) {
++    SharedSplit out;
++    if (main.find("@shared") == std::string_view::npos) {
++      out.main = std::string(main);
++      return out;
++    }
++    static const std::regex kShared(
++        R"(^[ \t]*const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[^;]*;[ \t]*//.*@shared\b.*$)"
++    );
++    std::size_t start = 0;
++    int line = 1;
++    while (start <= main.size()) {
++      const auto end = main.find('\n', start);
++      const std::string text(main.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
++      if (text.find("@shared") != std::string::npos && std::regex_match(text, kShared)) {
++        out.shared += "#line " + std::to_string(line) + " 0\n" + text + "\n";
++      } else {
++        out.main += text;
++      }
++      if (end == std::string_view::npos) {
++        break;
++      }
++      out.main += '\n';
++      start = end + 1;
++      ++line;
++    }
++    return out;
++  }
++
++  std::filesystem::path commonFile(const std::filesystem::path& mainFile) {
++    const auto candidate =
++        mainFile.parent_path() / (mainFile.stem().string() + "_common" + mainFile.extension().string());
++    return isRegularFile(candidate) ? candidate : std::filesystem::path{};
++  }
++
++  std::string assembleFragmentSource(std::string_view source, bool flipY, std::string_view common) {
++    const std::string code = withoutComments(std::string(common) + "\n" + std::string(source));
++    std::string uniforms;
++    for (std::size_t i = 0; i < std::size(kUniformNames); ++i) {
++      if (!declaresUniform(code, kUniformNames[i])) {
++        uniforms += kUniformDecls[i];
++        uniforms += '\n';
++      }
++    }
++
++    if (classifySource(source) == SourceKind::Complete) {
++      // Keep the shader's own #version line first; add the uniforms right after it.
++      static const std::regex kVersionLine(R"((^|\n)(\s*#\s*version[^\n]*)\n?)");
++      const std::string text(source);
++      std::smatch match;
++      if (!std::regex_search(text, match, kVersionLine)) {
++        return text;
++      }
++      const auto versionEnd = static_cast<std::size_t>(match.position(0) + match.length(0));
++      const auto lineOfVersionEnd = static_cast<std::size_t>(
++          std::count(text.begin(), text.begin() + static_cast<std::ptrdiff_t>(versionEnd), '\n')
++      );
++      std::string out = text.substr(0, versionEnd);
++      if (!out.ends_with('\n')) {
++        out += '\n';
++      }
++      out += kPrecision;
++      out += uniforms;
++      out += "#line " + std::to_string(lineOfVersionEnd + 1) + "\n";
++      out += text.substr(versionEnd);
++      return out;
++    }
++
++    std::string out = "#version 300 es\n";
++    out += kPrecision;
++    out += "#define HW_PERFORMANCE 1\n";
++    out += uniforms;
++    out += "out vec4 noctaliaFragColor;\n";
++    // Some KDE shaders add a "void mainImage()" overload that reads and writes the
++    // plugin's fragCoord / fragColor globals. Ours calls the Shadertoy form, so the
++    // overload is never run; declaring the globals is enough for it to compile.
++    static const std::regex kKdeMainImage(R"(\bvoid\s+mainImage\s*\(\s*(void)?\s*\))");
++    if (std::regex_search(code, kKdeMainImage)) {
++      out += "vec2 fragCoord;\nvec4 fragColor;\n";
++    }
++    out += common;
++    out += common.empty() ? "#line 1\n" : "#line 1 0\n";
++    out += source;
++    if (!out.ends_with('\n')) {
++      out += '\n';
++    }
++    out += "void main() {\n"
++           "  vec4 color = vec4(0.0, 0.0, 0.0, 1.0);\n";
++    if (flipY) {
++      out += "  mainImage(color, vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y));\n"
++             "  noctaliaFragColor = vec4(color.rgb, 1.0);\n";
++    } else {
++      // Buffers keep alpha: simulations store state in it.
++      out += "  mainImage(color, gl_FragCoord.xy);\n"
++             "  noctaliaFragColor = color;\n";
++    }
++    out += "}\n";
++    return out;
++  }
++
++  std::string_view vertexSource() {
++    return "#version 300 es\n"
++           "void main() {\n"
++           "  vec2 p = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) * 4.0 - 1.0;\n"
++           "  gl_Position = vec4(p, 0.0, 1.0);\n"
++           "}\n";
++  }
++
++  std::uint64_t fnv1a(std::string_view data, std::uint64_t seed) {
++    std::uint64_t hash = seed;
++    for (const char c : data) {
++      hash ^= static_cast<unsigned char>(c);
++      hash *= 0x100000001b3ULL;
++    }
++    return hash;
++  }
++
++} // namespace shader
+diff --git a/src/render/shader/shader_source.h b/src/render/shader/shader_source.h
+new file mode 100644
+index 0000000..24504bf
+--- /dev/null
++++ b/src/render/shader/shader_source.h
+@@ -0,0 +1,191 @@
++#pragma once
++
++// Pure helpers for the live "shader:" wallpaper: path syntax, file lookup and the
++// GLSL wrapper around a Shadertoy-style mainImage(). No GL here, so they are unit
++// tested in the shell (tests/shader_source_test.cpp there). Copied from the
++// shell's src/shell/shader/shader_source.h; keep the two in step.
++
++#include <array>
++#include <cstdint>
++#include <filesystem>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++namespace shader {
++
++  inline constexpr std::string_view kPathPrefix = "shader:";
++
++  inline bool isShaderPath(std::string_view path) noexcept { return path.starts_with(kPathPrefix); }
++
++  // The part after "shader:", trimmed ("" when nothing follows the prefix).
++  std::string shaderSpec(std::string_view path);
++
++  // Directories searched for a shader given by name: `configured` (each expanded
++  // for "~"), then $XDG_DATA_HOME/noctalia/shaders (default ~/.local/share), then
++  // noctalia/shaders under each $XDG_DATA_DIRS entry (default /usr/local/share,
++  // /usr/share). Duplicates are dropped; directories need not exist.
++  std::vector<std::filesystem::path> searchDirectories(const std::vector<std::string>& configured);
++
++  // Resolves a "shader:" path to a fragment shader file.
++  // - "/abs/file.frag" or "~/file.frag": that file.
++  // - "name" or "sub/name": in each search directory, in order, the first that
++  //   exists of <dir>/<spec>, <dir>/<spec>.frag, <dir>/Shaders/<spec>.frag and
++  //   <dir>/<library>/Shaders/<spec>.frag for every subdirectory <library>
++  //   (sorted). The last form finds shaders in an installed library such as
++  //   KDE Shader Wallpaper's tree (<library>/Shaders/*.frag beside its Resources/).
++  // nullopt when nothing matches.
++  std::optional<std::filesystem::path>
++  resolveShaderFile(std::string_view path, const std::vector<std::filesystem::path>& directories);
++
++  // How the user source is wrapped.
++  enum class SourceKind : std::uint8_t {
++    MainImage, // Shadertoy: defines mainImage(out vec4, in vec2); we add uniforms + main()
++    Complete,  // has its own #version and main(); we only add the uniforms it does not declare
++  };
++  SourceKind classifySource(std::string_view source);
++
++  // Uniforms every shader may use (Shadertoy names, plus the KDE plugin's
++  // multi-monitor extras). Exposed for the renderer and tests.
++  inline constexpr std::string_view kUniformNames[] = {
++      "iResolution",
++      "iTime",
++      "iTimeDelta",
++      "iFrame",
++      "iFrameRate",
++      "iMouse",
++      "iDate",
++      "iSampleRate",
++      "iChannelTime",
++      "iChannelResolution",
++      "iChannel0",
++      "iChannel1",
++      "iChannel2",
++      "iChannel3",
++      "iScreenOffset",
++      "iDesktopResolution",
++      "iScreenIndex",
++      "iScreenCount",
++      "iSubstep",
++      "iSubsteps",
++      // KDE Shader Wallpaper's window and desktop inputs: declared so its
++      // shaders compile; they read "no windows" (zero) and one desktop.
++      "iWindowCount",
++      "iWindowRects",
++      "iWindowRectsPrev",
++      "iWindowVelocities",
++      "iMousePrev",
++      "iVirtualDesktop",
++      "iVirtualDesktopCount",
++      "iVirtualDesktopAnim",
++  };
++
++  // Complete GLSL ES 3.00 fragment shader for `source`. With flipY (the image
++  // pass), fragCoord is passed to mainImage() flipped vertically, so the rendered
++  // texture stores the top row first (the order Noctalia samples), while the
++  // shader still sees Shadertoy's bottom-left origin. Buffer passes are internal
++  // and keep GL's own order (flipY false). Errors in the user code report line
++  // numbers of the original file (#line 1 before it).
++  // `common` (see commonSource) goes between the uniforms and the pass code.
++  std::string assembleFragmentSource(std::string_view source, bool flipY = true, std::string_view common = {});
++
++  // Shadertoy's "Common" code for a shader, as the KDE plugin builds it: the
++  // main file's single-line "const ... ; // ... @shared" declarations (so every
++  // pass sees the values written in the main file), then <stem>_common.frag.
++  // Compile errors keep their file line numbers (#line n 0 for main-file lines,
++  // #line n 1 for the common file).
++  std::string commonSource(std::string_view sharedConsts, std::string_view commonFile);
++
++  // Moves the main file's @shared consts out (blank lines stay in their place).
++  struct SharedSplit {
++    std::string main;
++    std::string shared; // "" when there are none
++  };
++  SharedSplit splitSharedConsts(std::string_view main);
++
++  // <stem>_common.frag beside a main shader ("" when missing).
++  std::filesystem::path commonFile(const std::filesystem::path& mainFile);
++
++  // Vertex shader for the full-screen triangle (no attributes; gl_VertexID).
++  std::string_view vertexSource();
++
++  // What feeds one iChannel.
++  struct ChannelSource {
++    enum class Kind : std::uint8_t {
++      None,        // nothing bound: black, iChannelResolution 0
++      Texture,     // texture slot `slot` (0-3)
++      Buffer,      // buffer pass `slot` (0-3 = A-D)
++      Self,        // directive token "self"; routeChannels() turns it into Buffer
++      Unsupported, // audio: not available yet, treated as None
++    };
++    Kind kind = Kind::None;
++    int slot = 0;
++    std::string token{}; // directive token for Unsupported (for the log)
++
++    bool operator==(const ChannelSource&) const = default;
++  };
++
++  // Header directives of a KDE Shader Wallpaper shader, read from comment lines
++  // in its first 60 lines (the plugin's rule):
++  //   // @texture0 Resources/Shadertoy_Organic_3.jpg   (@texture0..@texture3, optional ':')
++  //   // @channels tex0, none, audio, bufferA          (one token per iChannel0..3)
++  // Without @channels, iChannelN reads texture slot N. Tokens: tex0-3 / texture0-3
++  // / image0-3 / 0-3; none / off / - / -1; audio / fft / music / 20; bufferA-D /
++  // A-D / self / 10-13. A missing or unknown token keeps the default for that
++  // channel.
++  // (see routeChannels for the defaults). Further directives:
++  //   // @substeps 1        (buffer files) render once per frame, on the last substep
++  //   // @sim-max-height N  (main file) buffer passes render at most N rows
++  struct Directives {
++    std::array<std::string, 4> textures;                  // @textureN paths as written ("" = none)
++    bool hasChannels = false;                             // a @channels line was found
++    std::array<std::optional<ChannelSource>, 4> channels; // its tokens (nullopt = keep default)
++    std::optional<int> substeps;
++    std::optional<int> simMaxHeight;
++  };
++  Directives parseDirectives(std::string_view source);
++
++  // Pass index for routeChannels: the image pass, or buffer 0-3 (A-D).
++  inline constexpr int kImagePass = -1;
++
++  // Concrete inputs of one pass (Texture, Buffer, None or Unsupported), following
++  // the KDE plugin's rules. Defaults: the image pass reads texture slot N on
++  // iChannelN, buffer passes read nothing; when buffers exist, the image pass
++  // reads Buffer A on iChannel0 and each buffer reads itself on iChannel0. Then
++  // the pass's own @channels applies, or, for a buffer file without one, the
++  // main file's. "self" is the pass's own buffer (Buffer A in the image pass). A
++  // Buffer input whose buffer does not exist reads nothing.
++  std::array<ChannelSource, 4>
++  routeChannels(const Directives& own, const Directives& main, int pass, const std::array<bool, 4>& buffers);
++
++  // Buffer pass files beside a main shader: <stem>_bufferA.frag .. _bufferD.frag
++  // ("" where missing).
++  std::array<std::filesystem::path, 4> bufferFiles(const std::filesystem::path& mainFile);
++
++  // Buffer passes per frame: about 240 steps a second, so simulations advance at
++  // the same rate at any frame rate (1 to 8, as in the plugin).
++  int substepCount(double frameDeltaSeconds);
++
++  // Size buffer passes render at: the target size, scaled down (aspect kept)
++  // to at most maxHeight rows.
++  std::pair<int, int> simulationSize(int width, int height, std::optional<int> maxHeight);
++
++  // Root that relative @textureN paths start from: the parent of the shader's
++  // directory when that is named "Shaders" (the plugin's contents/ui layout, so
++  // "Resources/x.jpg" and "Shaders/x.jpg" both work), else the shader's directory.
++  std::filesystem::path libraryRoot(const std::filesystem::path& shaderFile);
++
++  // Image for a texture slot: an absolute or "~" path as given; a relative one
++  // under libraryRoot(shaderFile), then beside the shader. nullopt when missing.
++  std::optional<std::filesystem::path>
++  resolveTexturePath(std::string_view path, const std::filesystem::path& shaderFile);
++
++  // Key of a [wallpaper.shader] textures override: "<spec>:<slot>".
++  std::string textureOverrideKey(std::string_view spec, int slot);
++
++  // 64-bit FNV-1a, for cache keys and still-frame names.
++  std::uint64_t fnv1a(std::string_view data, std::uint64_t seed = 0xcbf29ce484222325ULL);
++
++} // namespace shader
+diff --git a/src/tools/secure_appearance_sync.cpp b/src/tools/secure_appearance_sync.cpp
+index 94beae0..92396dd 100644
+--- a/src/tools/secure_appearance_sync.cpp
++++ b/src/tools/secure_appearance_sync.cpp
+@@ -44,7 +44,9 @@ namespace greeter::secure_sync {
+     constexpr std::uint64_t kWallpaperSizeLimit = 256U * 1024U * 1024U;
+     constexpr std::uint64_t kTotalSizeLimit = 512U * 1024U * 1024U;
+     // Config + three output files + a fallback and up to sixteen per-output wallpapers.
+-    constexpr std::size_t kFileCountLimit = 22;
++    // sync.toml, three output files, per-output stills, a Sequoia scene and up to
++    // ten files of a live shader (main, buffers A-D, common, four images).
++    constexpr std::size_t kFileCountLimit = 32;
+     constexpr std::size_t kOutputEntryLimit = 16;
+     constexpr std::size_t kOutputNameLengthLimit = 127;
+     constexpr std::size_t kPaletteEntryLimit = 64;
+@@ -914,7 +916,7 @@ namespace greeter::secure_sync {
+         errorOut = "staged wallpaper has an invalid fill color";
+         return false;
+       }
+-      if (wallpaper.live.has_value() && *wallpaper.live != "sequoia") {
++      if (wallpaper.live.has_value() && *wallpaper.live != "sequoia" && *wallpaper.live != "shader") {
+         errorOut = "staged wallpaper has an invalid live kind";
+         return false;
+       }
+@@ -998,6 +1000,51 @@ namespace greeter::secure_sync {
+       return true;
+     }
+ 
++    [[nodiscard]] bool validateShader(
++        const config::GreeterTomlShader& shader, const std::unordered_set<std::string>& stagedWallpapers,
++        std::string& errorOut
++    ) {
++      // Every file must be one staged with this sync, in the greeter's data directory.
++      auto stagedFile = [&stagedWallpapers](const std::string& value) {
++        const std::filesystem::path file(value);
++        const std::string fileName = file.filename().string();
++        return file.parent_path() == std::filesystem::path(appearance::kDefaultSyncedDataDir)
++            && isWallpaperFileName(fileName)
++            && stagedWallpapers.contains(fileName);
++      };
++      if (!shader.main.has_value() || !stagedFile(*shader.main)) {
++        errorOut = "staged appearance.shader.main must reference an accompanying greeter file";
++        return false;
++      }
++      if (shader.common.has_value() && !shader.common->empty() && !stagedFile(*shader.common)) {
++        errorOut = "staged appearance.shader.common must reference an accompanying greeter file";
++        return false;
++      }
++      for (const auto* list : {&shader.buffers, &shader.textures}) {
++        if (list->size() > 4) {
++          errorOut = "staged appearance.shader lists more than four buffers or textures";
++          return false;
++        }
++        for (const auto& value : *list) {
++          if (!value.empty() && !stagedFile(value)) {
++            errorOut = "staged appearance.shader buffers and textures must reference accompanying greeter files";
++            return false;
++          }
++        }
++      }
++      auto inRange = [](const std::optional<double>& value, double low, double high) {
++        return !value.has_value() || (std::isfinite(*value) && *value >= low && *value <= high);
++      };
++      if (!inRange(shader.time, 0.0, 1.0e7)
++          || !inRange(shader.speed, 0.0, 10.0)
++          || !inRange(shader.renderScale, 0.1, 1.0)
++          || (shader.fps.has_value() && (*shader.fps < 1 || *shader.fps > 240))) {
++        errorOut = "staged appearance.shader has a value out of range";
++        return false;
++      }
++      return true;
++    }
++
+     [[nodiscard]] bool validatePayload(
+         const TemporaryDirectory& staging, const std::unordered_set<std::string>& stagedWallpapers,
+         std::string& errorOut
+@@ -1066,6 +1113,9 @@ namespace greeter::secure_sync {
+           && !validateSequoia(*sync.appearance.sequoia, stagedWallpapers, errorOut)) {
+         return false;
+       }
++      if (sync.appearance.shader.has_value() && !validateShader(*sync.appearance.shader, stagedWallpapers, errorOut)) {
++        return false;
++      }
+       if (sync.appearance.wallpapers.size() > kOutputEntryLimit) {
+         errorOut = "staged sync.toml appearance.wallpapers contains too many connector entries";
+         return false;
+diff --git a/tests/legacy_staging_compatibility_test.cpp b/tests/legacy_staging_compatibility_test.cpp
+index 9d46b45..fdcf3db 100644
+--- a/tests/legacy_staging_compatibility_test.cpp
++++ b/tests/legacy_staging_compatibility_test.cpp
+@@ -7,13 +7,13 @@
+ #include <algorithm>
+ #include <array>
+ #include <cerrno>
++#include <cstdint>
+ #include <cstdlib>
+ #include <cstring>
+ #include <filesystem>
+ #include <fstream>
+ #include <iostream>
+ #include <limits>
+-#include <cstdint>
+ #include <optional>
+ #include <stdexcept>
+ #include <string>
+@@ -699,8 +699,10 @@ progress = 0.5)toml");
+           error, passed
+       );
+ 
+-      writeSequoiaSyncToml(fixture.syncFile, "sequoia", R"toml(scene = "/var/lib/noctalia-greeter/wallpaper-sequoia.scene"
+-progress = 7.0)toml");
++      writeSequoiaSyncToml(
++          fixture.syncFile, "sequoia", R"toml(scene = "/var/lib/noctalia-greeter/wallpaper-sequoia.scene"
++progress = 7.0)toml"
++      );
+       error.clear();
+       expect(
+           "constrained sync rejects an out-of-range pose",
+@@ -709,6 +711,103 @@ progress = 7.0)toml");
+       );
+     }
+ 
++    {
++      // A live shader: its files are staged and named in [appearance.shader].
++      Fixture fixture(0700, 0600);
++      for (const char* name :
++           {"wallpaper-DP-1.png", "wallpaper-shader.frag", "wallpaper-shader_bufferA.frag",
++            "wallpaper-shader_common.frag", "wallpaper-shader-channel1.jpg"}) {
++        const auto file = fixture.stagingDirectory / name;
++        std::ofstream(file, std::ios::binary) << "data";
++        std::filesystem::permissions(file, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
++      }
++      // The shader table goes where the Sequoia body would; the helper writes both under their own header.
++      const auto writeShader = [&](std::string_view body) {
++        std::ofstream(fixture.syncFile, std::ios::trunc) << R"toml(
++[appearance]
++scheme = "Synced"
++
++[appearance.wallpapers.DP-1]
++path = "/var/lib/noctalia-greeter/wallpaper-DP-1.png"
++fill_mode = "crop"
++live = "shader"
++
++[appearance.shader]
++)toml" << body << R"toml(
++
++[appearance.palette]
++primary = "#010101"
++on_primary = "#020202"
++secondary = "#030303"
++on_secondary = "#040404"
++tertiary = "#050505"
++on_tertiary = "#060606"
++error = "#070707"
++on_error = "#080808"
++surface = "#090909"
++on_surface = "#101010"
++surface_variant = "#111111"
++on_surface_variant = "#121212"
++outline = "#131313"
++shadow = "#141414"
++hover = "#151515"
++on_hover = "#161616"
++)toml";
++      };
++      writeShader(R"toml(main = "/var/lib/noctalia-greeter/wallpaper-shader.frag"
++buffers = ["/var/lib/noctalia-greeter/wallpaper-shader_bufferA.frag", "", "", ""]
++common = "/var/lib/noctalia-greeter/wallpaper-shader_common.frag"
++textures = ["", "/var/lib/noctalia-greeter/wallpaper-shader-channel1.jpg", "", ""]
++time = 12.5
++speed = 1.0
++fps = 60
++render_scale = 0.5)toml");
++      greeter::config::clearConfigDiagnostics();
++      const auto sync = greeter::config::loadSync(fixture.syncFile);
++      expect("shader sync.toml parses cleanly", greeter::config::configDiagnostics().empty(), true, {}, passed);
++      expect(
++          "shader table parses",
++          sync.appearance.shader.has_value()
++              && sync.appearance.shader->buffers.size() == 4
++              && sync.appearance.shader->textures.size() == 4
++              && sync.appearance.shader->time == std::optional<double>(12.5)
++              && sync.appearance.shader->fps == std::optional<std::int64_t>(60),
++          true, {}, passed
++      );
++      error.clear();
++      expect(
++          "constrained sync accepts a live shader",
++          greeter::secure_sync::detail::validateConstrainedPayloadForTesting(fixture.stagingDirectory, error), true,
++          error, passed
++      );
++
++      writeShader(R"toml(main = "/var/lib/noctalia-greeter/wallpaper-shader.frag"
++textures = ["/etc/shadow"])toml");
++      error.clear();
++      expect(
++          "constrained sync rejects a shader image outside the staged files",
++          greeter::secure_sync::detail::validateConstrainedPayloadForTesting(fixture.stagingDirectory, error), false,
++          error, passed
++      );
++
++      writeShader(R"toml(main = "/var/lib/noctalia-greeter/wallpaper-shader_bufferB.frag")toml");
++      error.clear();
++      expect(
++          "constrained sync rejects a shader file that was not staged",
++          greeter::secure_sync::detail::validateConstrainedPayloadForTesting(fixture.stagingDirectory, error), false,
++          error, passed
++      );
++
++      writeShader(R"toml(main = "/var/lib/noctalia-greeter/wallpaper-shader.frag"
++render_scale = 4.0)toml");
++      error.clear();
++      expect(
++          "constrained sync rejects a shader value out of range",
++          greeter::secure_sync::detail::validateConstrainedPayloadForTesting(fixture.stagingDirectory, error), false,
++          error, passed
++      );
++    }
++
+     {
+       // Noctalia 5.0.1 inherits umask. With umask 0002 it creates this
+       // 0775 directory and 0664 payload beneath its private 0700 runtime dir.

@@ -1,7 +1,7 @@
 From 6d294b8feb745656d6e96c9e19e116f607d900be Mon Sep 17 00:00:00 2001
 From: nixos-base <nixos-base@example.invalid>
 Date: Tue, 17 Nov 2026 20:31:05 +0100
-Subject: [PATCH 1/6] Live "shader:" wallpaper (phase 1: single pass)
+Subject: [PATCH 1/8] Live "shader:" wallpaper (phase 1: single pass)
 
 Runs Shadertoy-style GLSL fragment shaders (mainImage(), the Shadertoy
 uniforms, the KDE Shader Wallpaper plugin's iScreenOffset and
@@ -1763,7 +1763,7 @@ index 000000000..3e1fd8fb1
 From 7b313f5cebb0860254fe9fe126e7dd4929f06225 Mon Sep 17 00:00:00 2001
 From: nixos-base <nixos-base@example.invalid>
 Date: Tue, 17 Nov 2026 20:42:41 +0100
-Subject: [PATCH 2/6] Shader wallpaper: channel textures (phase 2)
+Subject: [PATCH 2/8] Shader wallpaper: channel textures (phase 2)
 
 iChannel0-3 now read images:
 - A shader's header directives, as in KDE Shader Wallpaper (first 60 lines):
@@ -2339,7 +2339,7 @@ index 3e1fd8fb1..df0524fe7 100644
 From b49a95a947cc4a35dcb796d2d92f9bc5e0fcad4c Mon Sep 17 00:00:00 2001
 From: nixos-base <nixos-base@example.invalid>
 Date: Tue, 17 Nov 2026 21:07:21 +0100
-Subject: [PATCH 3/6] Shader wallpaper: buffer passes and background compiles
+Subject: [PATCH 3/8] Shader wallpaper: buffer passes and background compiles
  (phase 3)
 
 Multi-pass shaders: <stem>_bufferA-D.frag run before the image pass, with
@@ -4181,7 +4181,7 @@ index df0524fe7..e7d43e571 100644
 From 4d77d7da4130da86e49fbcea5b886b40216c51d8 Mon Sep 17 00:00:00 2001
 From: nixos-base <nixos-base@example.invalid>
 Date: Tue, 17 Nov 2026 21:44:03 +0100
-Subject: [PATCH 4/6] Shader wallpaper: pause behind windows and window inputs
+Subject: [PATCH 4/8] Shader wallpaper: pause behind windows and window inputs
  (phase 4)
 
 [wallpaper.shader] pause_when_covered = off | fullscreen | maximized |
@@ -5388,7 +5388,7 @@ index 000000000..8026cbbe4
 From 13243434e46f8fb19a69f2c4a0631b30d8034bf4 Mon Sep 17 00:00:00 2001
 From: nixos-base <nixos-base@example.invalid>
 Date: Tue, 17 Nov 2026 22:15:28 +0100
-Subject: [PATCH 5/6] Shader wallpaper: paused setting, status query, thumbnail
+Subject: [PATCH 5/8] Shader wallpaper: paused setting, status query, thumbnail
  tool
 
 For the live wallpaper picker plugin:
@@ -5794,7 +5794,7 @@ index 000000000..230172b36
 From eb8be4dc3d14a0b1f73e08622c4a4105efc53d51 Mon Sep 17 00:00:00 2001
 From: nixos-base <nixos-base@example.invalid>
 Date: Tue, 17 Nov 2026 23:07:44 +0100
-Subject: [PATCH 6/6] Shader thumbnails: render single-pass shaders without
+Subject: [PATCH 6/8] Shader thumbnails: render single-pass shaders without
  waiting
 
 noctalia-shader-thumbnail waited 1.5 s of real time per shader before
@@ -5969,6 +5969,599 @@ index 230172b36..58f9ad9ce 100644
      renderer.forgetConsumer(consumer);
    }
    std::filesystem::remove_all(stateDir, ec);
+-- 
+2.56.0
+
+
+From 05ad2f01a3ee24d171dba7f2daf2b323ec8eb0d3 Mon Sep 17 00:00:00 2001
+From: nixos-base <nixos-base@example.invalid>
+Date: Sun, 22 Nov 2026 22:07:11 +0100
+Subject: [PATCH 7/8] Shader wallpaper: KDE's mainImage() overload compiles;
+ free render targets on leaving a shader
+
+Abstract_Liquid and Slug_Ring add a 'void mainImage()' overload that reads
+the KDE plugin's fragCoord/fragColor globals. It is never called here, so
+declaring the globals is enough for them to compile.
+
+An output that switched from a shader to an image kept its render targets
+(about 8 MB at half resolution) until a shader drew again, and its window
+demand stayed on. The wallpaper now forgets the consumer on every live
+source it no longer shows and frees the retired GL objects at once with
+the shared context current.
+---
+ src/shell/live/live_wallpaper.cpp          | 23 ++++++++++++++++++++++
+ src/shell/live/live_wallpaper.h            | 11 +++++++++++
+ src/shell/shader/shader_live_wallpaper.cpp | 15 ++++++++++----
+ src/shell/shader/shader_live_wallpaper.h   |  2 ++
+ src/shell/shader/shader_source.cpp         |  7 +++++++
+ src/shell/wallpaper/wallpaper.cpp          |  8 ++++++++
+ tests/shader_source_test.cpp               |  8 ++++++++
+ 7 files changed, 70 insertions(+), 4 deletions(-)
+
+diff --git a/src/shell/live/live_wallpaper.cpp b/src/shell/live/live_wallpaper.cpp
+index a617d2327..2d0a194ee 100644
+--- a/src/shell/live/live_wallpaper.cpp
++++ b/src/shell/live/live_wallpaper.cpp
+@@ -85,6 +85,29 @@ namespace live {
+     }
+   }
+ 
++  void forgetConsumerExcept(const void* consumer, const LiveWallpaperSource* keepA, const LiveWallpaperSource* keepB) {
++    for (LiveWallpaperSource* source : allSources()) {
++      if (source != keepA && source != keepB) {
++        source->forgetConsumer(consumer);
++      }
++    }
++  }
++
++  bool hasRetiredGpuResources() {
++    for (const LiveWallpaperSource* source : allSources()) {
++      if (source->hasRetiredGpuResources()) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  void releaseRetiredGpuResources() {
++    for (LiveWallpaperSource* source : allSources()) {
++      source->releaseRetiredGpuResources();
++    }
++  }
++
+   void setStillChangedCallback(const std::function<void()>& callback) {
+     for (LiveWallpaperSource* source : allSources()) {
+       source->setStillChangedCallback(callback);
+diff --git a/src/shell/live/live_wallpaper.h b/src/shell/live/live_wallpaper.h
+index 00c13f876..6bc26d6bf 100644
+--- a/src/shell/live/live_wallpaper.h
++++ b/src/shell/live/live_wallpaper.h
+@@ -69,6 +69,10 @@ public:
+   virtual void onSecondTick() {}
+   // The GL context group was lost or reset: drop GL objects without GL calls.
+   virtual void abandonGpuResources() = 0;
++  // GL objects of forgotten consumers wait for a current context; true while some do.
++  virtual bool hasRetiredGpuResources() const { return false; }
++  // Deletes them. A context of the shared group must be current.
++  virtual void releaseRetiredGpuResources() {}
+ };
+ 
+ namespace live {
+@@ -86,6 +90,13 @@ namespace live {
+   void onSecondTick();
+   void abandonGpuResources();
+   void forgetConsumer(const void* consumer);
++  // forgetConsumer() on every source except `keepA` / `keepB` (the ones `consumer`
++  // still shows; either may be nullptr), so a source the consumer left frees its
++  // per-output state at once instead of on its next frame.
++  void forgetConsumerExcept(const void* consumer, const LiveWallpaperSource* keepA, const LiveWallpaperSource* keepB);
++  bool hasRetiredGpuResources();
++  // A context of the shared group must be current.
++  void releaseRetiredGpuResources();
+   void setStillChangedCallback(const std::function<void()>& callback);
+ 
+   // One listener on every source; the returned id removes all of them.
+diff --git a/src/shell/shader/shader_live_wallpaper.cpp b/src/shell/shader/shader_live_wallpaper.cpp
+index 12984a097..3350c513b 100644
+--- a/src/shell/shader/shader_live_wallpaper.cpp
++++ b/src/shell/shader/shader_live_wallpaper.cpp
+@@ -1151,10 +1151,7 @@ void ShaderLiveWallpaper::destroyTarget(Target& target) {
+ }
+ 
+ void ShaderLiveWallpaper::releaseRetired() {
+-  for (Target& target : m_retired) {
+-    destroyTarget(target);
+-  }
+-  m_retired.clear();
++  releaseRetiredGpuResources();
+   const auto now = std::chrono::steady_clock::now();
+   for (auto it = m_targets.begin(); it != m_targets.end();) {
+     if (now - it->second.lastUsed > kTargetIdle) {
+@@ -1166,6 +1163,16 @@ void ShaderLiveWallpaper::releaseRetired() {
+   }
+ }
+ 
++void ShaderLiveWallpaper::releaseRetiredGpuResources() {
++  if (!m_retired.empty()) {
++    kLog.debug("released {} render target{}", m_retired.size(), m_retired.size() == 1 ? "" : "s");
++  }
++  for (Target& target : m_retired) {
++    destroyTarget(target);
++  }
++  m_retired.clear();
++}
++
+ void ShaderLiveWallpaper::setUniforms(
+     const Uniforms& u, float width, float height, double timeDelta, std::int32_t frame, int substep, int substeps,
+     const LiveFrameRequest& request, const FrameWindows& windows
+diff --git a/src/shell/shader/shader_live_wallpaper.h b/src/shell/shader/shader_live_wallpaper.h
+index 8b2bdf5f4..01636a15a 100644
+--- a/src/shell/shader/shader_live_wallpaper.h
++++ b/src/shell/shader/shader_live_wallpaper.h
+@@ -86,6 +86,8 @@ public:
+   // runs only once a minute unless a seconds clock is shown.
+   void onSecondTick() override;
+   void abandonGpuResources() override;
++  bool hasRetiredGpuResources() const override { return !m_retired.empty(); }
++  void releaseRetiredGpuResources() override;
+ 
+ private:
+   ShaderLiveWallpaper();
+diff --git a/src/shell/shader/shader_source.cpp b/src/shell/shader/shader_source.cpp
+index 7e13586ce..1fc6eb166 100644
+--- a/src/shell/shader/shader_source.cpp
++++ b/src/shell/shader/shader_source.cpp
+@@ -455,6 +455,13 @@ namespace shader {
+     out += "#define HW_PERFORMANCE 1\n";
+     out += uniforms;
+     out += "out vec4 noctaliaFragColor;\n";
++    // Some KDE shaders add a "void mainImage()" overload that reads and writes the
++    // plugin's fragCoord / fragColor globals. Ours calls the Shadertoy form, so the
++    // overload is never run; declaring the globals is enough for it to compile.
++    static const std::regex kKdeMainImage(R"(\bvoid\s+mainImage\s*\(\s*(void)?\s*\))");
++    if (std::regex_search(code, kKdeMainImage)) {
++      out += "vec2 fragCoord;\nvec4 fragColor;\n";
++    }
+     out += common;
+     out += common.empty() ? "#line 1\n" : "#line 1 0\n";
+     out += source;
+diff --git a/src/shell/wallpaper/wallpaper.cpp b/src/shell/wallpaper/wallpaper.cpp
+index 9e407ddfd..a19e35f43 100644
+--- a/src/shell/wallpaper/wallpaper.cpp
++++ b/src/shell/wallpaper/wallpaper.cpp
+@@ -1674,6 +1674,14 @@ void Wallpaper::updateRendererState(WallpaperInstance& instance) {
+   LiveWallpaperSource* nextLive =
+       instance.nextSourceKind == WallpaperSourceKind::Live ? live::sourceFor(instance.pendingPath) : nullptr;
+   wallpaperNode->setLiveSources(currentLive, instance.currentPath, nextLive, instance.pendingPath, &instance);
++  // A live source this output left (a shader, then an image) frees its frame
++  // buffers now: nothing would ask it for a frame again to trigger that.
++  live::forgetConsumerExcept(&instance, currentLive, nextLive);
++  if (live::hasRetiredGpuResources()
++      && m_renderContext != nullptr
++      && m_renderContext->backend().makeCurrentNoSurface()) {
++    live::releaseRetiredGpuResources();
++  }
+   for (LiveWallpaperSource* source : {currentLive, nextLive}) {
+     if (source != nullptr) {
+       source->setConsumerOutput(&instance, instance.connectorName);
+diff --git a/tests/shader_source_test.cpp b/tests/shader_source_test.cpp
+index e7d43e571..03cfbc8ad 100644
+--- a/tests/shader_source_test.cpp
++++ b/tests/shader_source_test.cpp
+@@ -226,6 +226,14 @@ namespace {
+     TEST_CHECK(contains(buffer, "noctaliaFragColor = color;"));
+     TEST_CHECK(contains(buffer, "uniform int iSubsteps;"));
+     TEST_CHECK(contains(buffer, "uniform vec4 iWindowRects[16];"));
++    TEST_CHECK(!contains(buffer, "vec2 fragCoord;"));
++
++    // KDE's "void mainImage()" overload gets the fragCoord / fragColor globals it reads.
++    const std::string kde = shader::assembleFragmentSource(
++        "void mainImage(out vec4 c, in vec2 p) { c = vec4(1); }\n"
++        "void mainImage() { vec4 color; mainImage(color, fragCoord); fragColor = color; }\n"
++    );
++    TEST_CHECK(contains(kde, "vec2 fragCoord;\nvec4 fragColor;\n"));
+ 
+     // Common code: @shared consts move from the main file, then <stem>_common.frag.
+     write(dir / "Ripple_common.frag", "float shared_fn() { return 1.0; }\n");
+-- 
+2.56.0
+
+
+From d4b8942a444e7ae7574ebe9ebe9c92cf75192592 Mon Sep 17 00:00:00 2001
+From: nixos-base <nixos-base@example.invalid>
+Date: Sun, 22 Nov 2026 22:18:39 +0100
+Subject: [PATCH 8/8] Greeter sync: stage the live shader for the greeter
+
+When an output's wallpaper is a compiled shader and the lock screen
+animates shaders, the sync stages its files as wallpaper-shader*
+(main, buffers A-D, common code, the image behind each texture slot)
+and writes [appearance.shader] with them, the still's iTime, speed,
+fps (the lock screen's) and render scale; those outputs get
+live = "shader". One shader at most: the greeter output's, else the
+first output's. Files are listed explicitly because the greeter's
+state directory keeps files of earlier syncs.
+
+Still frames now record their iTime in the file name (-t<ms>), so the
+greeter can carry on from the still.
+---
+ src/shell/greeter/greeter_appearance_sync.cpp | 169 +++++++++++++++++-
+ src/shell/shader/shader_live_wallpaper.cpp    |  38 +++-
+ src/shell/shader/shader_live_wallpaper.h      |  13 ++
+ 3 files changed, 210 insertions(+), 10 deletions(-)
+
+diff --git a/src/shell/greeter/greeter_appearance_sync.cpp b/src/shell/greeter/greeter_appearance_sync.cpp
+index b0cdea35c..8f1bd7c4e 100644
+--- a/src/shell/greeter/greeter_appearance_sync.cpp
++++ b/src/shell/greeter/greeter_appearance_sync.cpp
+@@ -10,12 +10,15 @@
+ #include "shell/live/live_wallpaper.h"
+ #include "shell/sequoia/sequoia_live_wallpaper.h"
+ #include "shell/session/session_action_meta.h"
++#include "shell/shader/shader_live_wallpaper.h"
++#include "shell/shader/shader_source.h"
+ #include "system/process.h"
+ #include "ui/palette.h"
+ #include "util/file_utils.h"
+ #include "util/string_utils.h"
+ 
+ #include <algorithm>
++#include <array>
+ #include <atomic>
+ #include <cctype>
+ #include <chrono>
+@@ -244,21 +247,27 @@ namespace {
+   }
+ 
+   // Fallback single wallpaper when no per-output map is usable. `live` is set when it
+-  // comes from a "sequoia:" wallpaper (the path is then its still frame).
+-  std::string resolveSyncWallpaperPath(const ConfigService& configService, bool& live) {
++  // comes from a "sequoia:" wallpaper, `shaderSpec` when from a "shader:" one (the
++  // path is then its still frame).
++  std::string resolveSyncWallpaperPath(const ConfigService& configService, bool& live, std::string& shaderSpec) {
+     live = false;
++    shaderSpec.clear();
++    const auto noteLive = [&](const std::string& configured) {
++      live = SequoiaLiveWallpaper::isSequoiaPath(configured);
++      shaderSpec = shader::isShaderPath(configured) ? shader::shaderSpec(configured) : std::string{};
++    };
+     if (const auto output = readGreeterConfiguredOutput(); output.has_value() && !output->empty()) {
+       const std::string configured = configService.getWallpaperPath(*output);
+       const std::string path = live::imagePathFor(configured);
+       if (!path.empty()) {
+-        live = SequoiaLiveWallpaper::isSequoiaPath(configured);
++        noteLive(configured);
+         return path;
+       }
+     }
+     const std::string configuredDefault = configService.getDefaultWallpaperPath();
+     std::string defaultPath = live::imagePathFor(configuredDefault);
+     if (!defaultPath.empty()) {
+-      live = SequoiaLiveWallpaper::isSequoiaPath(configuredDefault);
++      noteLive(configuredDefault);
+       return defaultPath;
+     }
+     return configService.getGreeterSyncWallpaperPath();
+@@ -268,7 +277,8 @@ namespace {
+     std::string connector;
+     std::string installedName;
+     std::string sourcePath;
+-    bool live = false; // a "sequoia:" wallpaper, staged as its still frame
++    bool live = false;      // a "sequoia:" wallpaper, staged as its still frame
++    std::string shaderSpec; // a "shader:" wallpaper (staged as its still frame): its spec
+   };
+ 
+   // Installed name of the Sequoia scene; the greeter's sync helper accepts "wallpaper-*" files.
+@@ -319,6 +329,111 @@ namespace {
+     return table;
+   }
+ 
++  // Installed names of a live shader's files start with this.
++  constexpr std::string_view kStagedShaderStem = "wallpaper-shader";
++
++  // Stages the files of shader `spec` (main, buffer passes, common code, the image of
++  // each texture slot) and returns the [appearance.shader] table that lets the greeter
++  // run it from its still. Nothing when the shader has not compiled in this run, or
++  // when the lock screen does not animate shaders (the greeter follows it).
++  std::optional<toml::table> stageShader(
++      const std::filesystem::path& staging, const std::filesystem::path& installedStateDirectory,
++      const std::string& spec
++  ) {
++    const auto& live = ShaderLiveWallpaper::instance();
++    const WallpaperShaderConfig& config = live.config();
++    if (config.paused || config.lockMotion != ShaderMotion::Animated || config.speed <= 0.0F) {
++      kLog.info("greeter sync: shaders are paused or still; the greeter shows the shader's still only");
++      return std::nullopt;
++    }
++    const std::string path = std::string(shader::kPathPrefix) + spec;
++    const auto files = live.files(path);
++    if (!files.has_value()) {
++      kLog.info("greeter sync: shader '{}' has not compiled yet; the greeter shows its still only", spec);
++      return std::nullopt;
++    }
++
++    std::vector<std::filesystem::path> staged;
++    const auto stage = [&](const std::filesystem::path& source, const std::string& name) -> std::optional<std::string> {
++      std::error_code ec;
++      const auto destination = staging / name;
++      std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
++      if (ec) {
++        kLog.warn("greeter sync: failed to stage shader file '{}': {}", source.string(), ec.message());
++        return std::nullopt;
++      }
++      staged.push_back(destination);
++      if (!secureStagedFile(destination)) {
++        return std::nullopt;
++      }
++      return (installedStateDirectory / name).string();
++    };
++    const auto unstage = [&staged] {
++      std::error_code ec;
++      for (const auto& file : staged) {
++        std::filesystem::remove(file, ec);
++      }
++    };
++
++    const std::string stem(kStagedShaderStem);
++    toml::table table;
++    const auto main = stage(files->main, stem + ".frag");
++    if (!main.has_value()) {
++      unstage();
++      return std::nullopt;
++    }
++    table.insert_or_assign("main", *main);
++    // Listed explicitly: the greeter's state directory keeps files of an earlier sync.
++    static constexpr std::array<char, 4> kBufferLetters = {'A', 'B', 'C', 'D'};
++    toml::array buffers;
++    for (std::size_t i = 0; i < 4; ++i) {
++      if (files->buffers[i].empty()) {
++        buffers.push_back(std::string{});
++        continue;
++      }
++      const auto installed = stage(files->buffers[i], std::format("{}_buffer{}.frag", stem, kBufferLetters[i]));
++      if (!installed.has_value()) {
++        unstage();
++        return std::nullopt;
++      }
++      buffers.push_back(*installed);
++    }
++    table.insert_or_assign("buffers", std::move(buffers));
++    if (!files->common.empty()) {
++      const auto installed = stage(files->common, stem + "_common.frag");
++      if (!installed.has_value()) {
++        unstage();
++        return std::nullopt;
++      }
++      table.insert_or_assign("common", *installed);
++    }
++    toml::array textures;
++    for (std::size_t slot = 0; slot < 4; ++slot) {
++      const std::string& image = files->textures[slot];
++      if (image.empty()) {
++        textures.push_back(std::string{});
++        continue;
++      }
++      const std::string extension = std::filesystem::path(image).extension().string();
++      const bool plainExtension =
++          std::ranges::all_of(extension, [](unsigned char ch) { return std::isalnum(ch) != 0 || ch == '.'; });
++      const auto installed =
++          stage(image, std::format("{}-channel{}{}", stem, slot, plainExtension ? extension : std::string{}));
++      if (!installed.has_value()) {
++        unstage();
++        return std::nullopt;
++      }
++      textures.push_back(*installed);
++    }
++    table.insert_or_assign("textures", std::move(textures));
++    table.insert_or_assign("time", files->stillTime.value_or(0.0));
++    table.insert_or_assign("speed", static_cast<double>(config.speed));
++    table.insert_or_assign("fps", static_cast<std::int64_t>(std::clamp(config.lockFps, 1, 240)));
++    table.insert_or_assign("render_scale", static_cast<double>(std::clamp(config.renderScale, 0.1F, 1.0F)));
++    kLog.info("greeter sync: staged shader '{}' ({} files)", spec, staged.size());
++    return table;
++  }
++
+   // Stage every per-monitor wallpaper so the greeter can pick by connector name.
+   // File wallpapers are copied as wallpaper-<connector>.*; solid color: specs are
+   // kept as sourcePath only (no file) so the wallpapers map can still reference them.
+@@ -356,7 +471,10 @@ namespace {
+       }
+       kLog.info("greeter sync: staged wallpaper for '{}' -> {}", connector, installedName);
+       staged.push_back(
+-          StagedOutputWallpaper{connector, installedName, sourcePath, SequoiaLiveWallpaper::isSequoiaPath(monitorPath)}
++          StagedOutputWallpaper{
++              connector, installedName, sourcePath, SequoiaLiveWallpaper::isSequoiaPath(monitorPath),
++              shader::isShaderPath(monitorPath) ? shader::shaderSpec(monitorPath) : std::string{}
++          }
+       );
+     }
+     // unordered_map iteration order is unspecified; keep map/fallback deterministic.
+@@ -495,7 +613,8 @@ namespace {
+       const std::filesystem::path& staging, const Config& config, std::string_view resolvedMode,
+       const std::string& wallpaperPath, const std::string& installedWallpaperName,
+       const std::vector<StagedOutputWallpaper>& outputWallpapers, const std::filesystem::path& installedStateDirectory,
+-      const GreeterSyncMode mode, const std::optional<toml::table>& sequoia, const bool defaultLive
++      const GreeterSyncMode mode, const std::optional<toml::table>& sequoia, const bool defaultLive,
++      const std::optional<toml::table>& shaderTable, const std::string& shaderSpec, const std::string& defaultShaderSpec
+   ) {
+     toml::table root;
+     toml::table appearance;
+@@ -542,6 +661,13 @@ namespace {
+       }
+       if (sequoia.has_value() && defaultLive && !installedWallpaperName.empty()) {
+         wallpaper.insert_or_assign("live", "sequoia");
++      } else if (
++          shaderTable.has_value()
++          && !shaderSpec.empty()
++          && defaultShaderSpec == shaderSpec
++          && !installedWallpaperName.empty()
++      ) {
++        wallpaper.insert_or_assign("live", "shader");
+       }
+       if (!wallpaper.empty()) {
+         appearance.insert("wallpaper", std::move(wallpaper));
+@@ -549,6 +675,9 @@ namespace {
+       if (sequoia.has_value()) {
+         appearance.insert("sequoia", *sequoia);
+       }
++      if (shaderTable.has_value()) {
++        appearance.insert("shader", *shaderTable);
++      }
+ 
+       if (!outputWallpapers.empty()) {
+         toml::table byOutput;
+@@ -567,6 +696,13 @@ namespace {
+           }
+           if (sequoia.has_value() && entry.live && !entry.installedName.empty()) {
+             item.insert_or_assign("live", "sequoia");
++          } else if (
++              shaderTable.has_value()
++              && !shaderSpec.empty()
++              && entry.shaderSpec == shaderSpec
++              && !entry.installedName.empty()
++          ) {
++            item.insert_or_assign("live", "shader");
+           }
+           byOutput.insert(entry.connector, std::move(item));
+         }
+@@ -1117,6 +1253,9 @@ namespace greeter {
+     std::string installedWallpaperName;
+     bool defaultLive = false;
+     std::optional<toml::table> sequoia;
++    std::string defaultShaderSpec;
++    std::string shaderSpec; // the one shader the greeter runs live
++    std::optional<toml::table> shaderTable;
+     if (config.wallpaper.enabled) {
+       auto stagedOutputs = stageAllOutputWallpapers(staging, configService);
+       if (!stagedOutputs.has_value()) {
+@@ -1124,7 +1263,7 @@ namespace greeter {
+       }
+       outputWallpapers = std::move(*stagedOutputs);
+ 
+-      wallpaperPath = resolveSyncWallpaperPath(configService, defaultLive);
++      wallpaperPath = resolveSyncWallpaperPath(configService, defaultLive, defaultShaderSpec);
+       const auto stagedWallpaper = stageWallpaper(staging, wallpaperPath);
+       if (!stagedWallpaper.has_value()) {
+         return GreeterSyncLaunch::Failed;
+@@ -1139,6 +1278,7 @@ namespace greeter {
+           wallpaperPath = entry.sourcePath;
+           installedWallpaperName = entry.installedName;
+           defaultLive = entry.live;
++          defaultShaderSpec = entry.shaderSpec;
+         };
+         bool pinResolved = false;
+         if (const auto pin = readGreeterConfiguredOutput(); pin.has_value() && !pin->empty()) {
+@@ -1167,12 +1307,23 @@ namespace greeter {
+       if (anyLive) {
+         sequoia = stageSequoiaScene(staging, stateDirectory);
+       }
++      // One live shader at most (the files of several would crowd the sync): the
++      // greeter output's, else the first output's. Outputs on other shaders show stills.
++      shaderSpec = defaultShaderSpec;
++      for (const auto& entry : outputWallpapers) {
++        if (shaderSpec.empty() && !entry.shaderSpec.empty()) {
++          shaderSpec = entry.shaderSpec;
++        }
++      }
++      if (!shaderSpec.empty()) {
++        shaderTable = stageShader(staging, stateDirectory, shaderSpec);
++      }
+     } else {
+       kLog.info("greeter sync: wallpaper disabled; not syncing wallpaper");
+     }
+     if (!writeStagedSyncToml(
+             staging, config, resolvedThemeMode, wallpaperPath, installedWallpaperName, outputWallpapers, stateDirectory,
+-            mode, sequoia, defaultLive
++            mode, sequoia, defaultLive, shaderTable, shaderSpec, defaultShaderSpec
+         )) {
+       return GreeterSyncLaunch::Failed;
+     }
+diff --git a/src/shell/shader/shader_live_wallpaper.cpp b/src/shell/shader/shader_live_wallpaper.cpp
+index 3350c513b..211b56aa5 100644
+--- a/src/shell/shader/shader_live_wallpaper.cpp
++++ b/src/shell/shader/shader_live_wallpaper.cpp
+@@ -12,6 +12,7 @@
+ 
+ #include <EGL/egl.h>
+ #include <algorithm>
++#include <charconv>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstring>
+@@ -1414,7 +1415,11 @@ void ShaderLiveWallpaper::maybeCaptureStill(Program& program, const Target& targ
+       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+           .count();
+   const std::string prefix = stillPrefix(program.spec);
+-  const std::string path = (std::filesystem::path(state) / (prefix + std::to_string(stamp) + ".png")).string();
++  // "-t<ms>" records the frame's iTime, so the greeter can carry on from this still.
++  const auto stillMs = static_cast<std::int64_t>(std::llround(target.lastTime * 1000.0));
++  const std::string path =
++      (std::filesystem::path(state) / std::format("{}{}-t{}.png", prefix, stamp, std::max<std::int64_t>(0, stillMs)))
++          .string();
+   const std::string spec = program.spec;
+   m_stillWriting = true;
+   std::thread([this, rgba = std::move(rgba), width = target.width, height = target.height, path, prefix, spec] {
+@@ -1590,6 +1595,37 @@ ShaderLiveWallpaper::FrameWindows ShaderLiveWallpaper::frameWindows(Target& targ
+   return out;
+ }
+ 
++std::optional<ShaderLiveWallpaper::Files> ShaderLiveWallpaper::files(std::string_view path) const {
++  const auto it = m_programs.find(shader::shaderSpec(path));
++  if (it == m_programs.end()) {
++    return std::nullopt;
++  }
++  const Program& program = it->second;
++  if (program.failed || program.image.program == 0 || program.file.empty()) {
++    return std::nullopt;
++  }
++  Files out;
++  out.main = program.file;
++  for (std::size_t i = 0; i < 4; ++i) {
++    if (program.hasBuffer[i]) {
++      out.buffers[i] = program.bufferPaths[i];
++    }
++  }
++  out.common = program.commonPath;
++  out.textures = program.slotImages;
++  // shader-still-<hash>-<stamp>-t<ms>.png
++  const std::string still = std::filesystem::path(stillPathFor(path)).stem().string();
++  if (const auto mark = still.rfind("-t"); mark != std::string::npos && still.starts_with(kStillPrefix)) {
++    std::int64_t ms = 0;
++    const char* first = still.data() + mark + 2;
++    const char* last = still.data() + still.size();
++    if (const auto [end, ec] = std::from_chars(first, last, ms); ec == std::errc{} && end == last && ms >= 0) {
++      out.stillTime = static_cast<double>(ms) / 1000.0;
++    }
++  }
++  return out;
++}
++
+ bool ShaderLiveWallpaper::hasBufferPasses(std::string_view path) const {
+   const auto it = m_programs.find(shader::shaderSpec(path));
+   return it != m_programs.end() && std::ranges::any_of(it->second.hasBuffer, [](bool has) { return has; });
+diff --git a/src/shell/shader/shader_live_wallpaper.h b/src/shell/shader/shader_live_wallpaper.h
+index 01636a15a..474d216b7 100644
+--- a/src/shell/shader/shader_live_wallpaper.h
++++ b/src/shell/shader/shader_live_wallpaper.h
+@@ -81,6 +81,19 @@ public:
+   // Whether a compiled shader has _bufferA-D passes (whose state builds up over frames).
+   bool hasBufferPasses(std::string_view path) const;
+ 
++  // What the greeter needs to run a shader path itself: its files, the image
++  // behind each texture slot ("" = black) and the iTime of its still frame.
++  // nullopt until the shader compiled here (a broken one is never handed on).
++  struct Files {
++    std::filesystem::path main;
++    std::array<std::filesystem::path, 4> buffers; // "" = no buffer
++    std::filesystem::path common;                 // "" = none
++    std::array<std::string, 4> textures;
++    std::optional<double> stillTime; // nullopt: the still predates time stamps
++  };
++  std::optional<Files> files(std::string_view path) const;
++  const WallpaperShaderConfig& config() const noexcept { return m_config; }
++
+   // Reloads shaders whose file changed (or appeared) since they were compiled.
+   // Also checked from advance() at most once a second: Noctalia's "second" tick
+   // runs only once a minute unless a seconds clock is shown.
 -- 
 2.56.0
 

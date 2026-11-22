@@ -133,7 +133,7 @@ index 19a84178b..de2b2a1b2 100644
    float m_bgRadius = 0.0F;
    float m_bgPadding = 0.0F;
 diff --git a/src/shell/greeter/greeter_appearance_sync.cpp b/src/shell/greeter/greeter_appearance_sync.cpp
-index b0cdea35c..98f37ccb4 100644
+index 8f1bd7c4e..7e24f2f54 100644
 --- a/src/shell/greeter/greeter_appearance_sync.cpp
 +++ b/src/shell/greeter/greeter_appearance_sync.cpp
 @@ -8,6 +8,7 @@
@@ -143,8 +143,8 @@ index b0cdea35c..98f37ccb4 100644
 +#include "shell/render/glass_params.h"
  #include "shell/sequoia/sequoia_live_wallpaper.h"
  #include "shell/session/session_action_meta.h"
- #include "system/process.h"
-@@ -527,6 +528,17 @@ namespace {
+ #include "shell/shader/shader_live_wallpaper.h"
+@@ -646,6 +647,17 @@ namespace {
      putPaletteColor(palette, "on_hover", ::palette.onHover);
      appearance.insert("palette", std::move(palette));
  
