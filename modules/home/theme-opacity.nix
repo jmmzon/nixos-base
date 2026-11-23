@@ -112,12 +112,20 @@
         ];
         text = ''
           # Usage: erebor-theme-opacity [--reset] [dark|light] [--links-only]
+          #        erebor-theme-opacity --ghostty
           # Without a mode: $NOCTALIA_THEME_MODE (hooks), else Noctalia's current mode.
           # --reset: Noctalia's surface opacities were just put back to its
           # config file's values (dark mode's), e.g. a new config was loaded and
           # the runtime values removed from settings.toml. Forget the values
           # remembered per mode and derive this mode's (and reduce
           # transparency's) from the config again. Darkly is left alone.
+          # --ghostty: only rewrite Ghostty's include for the current mode and
+          # reload Ghostty (the ghostty-bg template's post_hook, after a palette change).
+          ghostty_only=false
+          if [ "''${1:-}" = --ghostty ]; then
+            ghostty_only=true
+            shift
+          fi
           reset=false
           if [ "''${1:-}" = --reset ]; then
             reset=true
@@ -145,6 +153,50 @@
           )
           darklyrc="''${XDG_CONFIG_HOME:-$HOME/.config}/darklyrc"
 
+          # Ghostty premultiplies its background colour in linear light, while
+          # Umbriel blends windows in sRGB, so a light background at opacity a
+          # adds enc(a * lin(bg)) instead of a * bg: "0.5" white shows as 0.73
+          # and the backdrop's bright parts clip to white (measured headless).
+          # Black is unaffected. Ghostty's include gets the background that
+          # comes out as the intended a * bg: enc(lin(a * bg) / a) per channel,
+          # from this mode's terminal background (the ghostty-bg template).
+          ghostty_write() { # -> 0 when $state/ghostty changed
+            local src="$variants/$sel/ghostty" out="$state/ghostty" a bg want
+            want="$(cat "$src")"
+            a="$(awk -F' *= *' '$1 == "background-opacity" { print $2 }' "$src")"
+            bg="$(awk -v m="$mode" '$1 == m { print $2 }' "$state/ghostty-bg" 2>/dev/null || true)"
+            if [[ "$bg" =~ ^#[0-9a-fA-F]{6}$ ]] && [ -n "$a" ]; then
+              want="$want
+          background = $(awk -v a="$a" -v hex="''${bg#\#}" '
+                function lin(c) { return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ^ 2.4 }
+                function enc(c) { if (c > 1) c = 1; return c <= 0.0031308 ? c * 12.92 : 1.055 * c ^ (1 / 2.4) - 0.055 }
+                BEGIN {
+                  out = "#"
+                  for (i = 0; i < 3; i++) {
+                    c = strtonum("0x" substr(hex, 2 * i + 1, 2)) / 255
+                    v = a > 0 ? enc(lin(a * c) / a) : c
+                    out = out sprintf("%02x", int(v * 255 + 0.5))
+                  }
+                  print out
+                }')"
+            fi
+            if [ -L "$out" ] || [ "$(cat "$out" 2>/dev/null || true)" != "$want" ]; then
+              printf '%s\n' "$want" > "$out.tmp"
+              mv -f "$out.tmp" "$out"
+              return 0
+            fi
+            return 1
+          }
+          if $ghostty_only; then
+            mode="$(cat "$state/mode" 2>/dev/null || echo dark)"
+            sel="$(cat "$state/linked" 2>/dev/null || echo "$mode")"
+            [ -d "$variants/$sel" ] || sel="$mode"
+            if ghostty_write; then
+              pkill -USR2 -x 'ghostty|\.ghostty-wrappe' || true
+            fi
+            exit 0
+          fi
+
           mode="''${1:-''${NOCTALIA_THEME_MODE:-}}"
           if [ -z "$mode" ]; then
             mode="$(noctalia msg theme-mode-get 2>/dev/null || true)"
@@ -158,7 +210,8 @@
           sel="$mode"
           $reduce && sel="$mode-reduced"
           linked_before="$(cat "$state/linked" 2>/dev/null || true)"
-          for f in ghostty monstar vicinae.json zed.json strata-dark.toml strata-light.toml zen.css; do
+          ghostty_write || true
+          for f in monstar vicinae.json zed.json strata-dark.toml strata-light.toml zen.css; do
             ln -sfn "$variants/$sel/$f" "$state/$f"
           done
           printf '%s\n' "$mode" > "$state/mode"
@@ -386,6 +439,10 @@
     in
     {
       home.packages = [ script ];
+      # Renders both modes' terminal background to $state/ghostty-bg on every
+      # palette change; its post_hook (`erebor-theme-opacity --ghostty`, in the
+      # host's Noctalia config) rewrites Ghostty's include from it.
+      xdg.configFile."noctalia/templates/ghostty-bg".source = ../../home/noctalia/templates/ghostty-bg;
       # Keep the links valid after a rebuild (new variants), in the last mode used;
       # dark before the first switch.
       # After linkGeneration: the glass link needs ~/.config/umbriel/glass-<mode>.toml.

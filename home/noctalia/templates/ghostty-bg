@@ -1,0 +1,2 @@
+dark {{colors.terminal_background.dark.hex}}
+light {{colors.terminal_background.light.hex}}
