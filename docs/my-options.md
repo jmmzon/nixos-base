@@ -2912,14 +2912,17 @@ absolute path
 
 ## my\.xremap\.config
 
-The user’s xremap keymap (~/\.config/xremap/config\.yml)\. Null deploys the
-base’s home/xremap/config\.yml, with its launcher paths under the user’s
+The user’s xremap keymap: one file or a list of files, deployed under
+~/\.config/xremap by their own names (which must differ)\. xremap loads them
+in list order and merges the modmap, keymap and virtual_modifiers of later
+files into the first, so earlier keymaps win when two match\. Null deploys
+the base’s home/xremap/config\.yml, with its launcher paths under the user’s
 home directory\. The keymap applies where the xremap aspect runs\.
 
 
 
 *Type:*
-null or absolute path
+null or ((list of absolute path) or absolute path convertible to it)
 
 
 
@@ -2934,7 +2937,11 @@ null
 *Example:*
 
 ```nix
-../../../home/xremap/config.yml
+[
+  ../../../home/xremap/caps.yml
+  ../../../home/xremap/macos.yml
+]
+
 ```
 
 *Declared by:*

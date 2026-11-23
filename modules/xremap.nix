@@ -1,5 +1,11 @@
 # uinput access and the xremap key remapper (imported per host), and the
 # keymap it reads (home/xremap).
+let
+  # File names under ~/.config/xremap, in load order: the base keymap when
+  # my.xremap.config is null, else each listed file under its own name.
+  keymapNames =
+    files: if files == null then [ "config.yml" ] else map (f: baseNameOf (toString f)) files;
+in
 {
   flake.modules.nixos.xremap =
     {
@@ -13,6 +19,8 @@
       cfg = config.my.xremap;
       deviceArgs = lib.concatMapStrings (d: "--device \"${d.name}\" ") cfg.devices;
       hotplugUsb = lib.unique (lib.filter (usb: usb != null) (map (d: d.usb) cfg.devices));
+      names = keymapNames cfg.config;
+      configArgs = lib.concatMapStringsSep " " (n: "/home/${user}/.config/xremap/${n}") names;
     in
     {
       options.my.xremap = {
@@ -55,6 +63,13 @@
       };
 
       config = {
+        assertions = [
+          {
+            assertion = lib.allUnique names;
+            message = "my.xremap.config: keymap files need distinct names (${toString names}).";
+          }
+        ];
+
         services.udev.extraRules = ''
           KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"
         ''
@@ -75,7 +90,7 @@
             # "none" if the compositor is not up yet, which disables every
             # application-scoped keymap. wlroots connects on first use and covers
             # Umbriel (wlr-foreign-toplevel).
-            ExecStart = "${pkgs.xremap}/bin/xremap --desktop wlroots --allow-launch true --mouse ${deviceArgs}/home/${user}/.config/xremap/config.yml";
+            ExecStart = "${pkgs.xremap}/bin/xremap --desktop wlroots --allow-launch true --mouse ${deviceArgs}${configArgs}";
             Restart = "on-failure";
           };
         };
@@ -97,16 +112,26 @@
   flake.modules.homeManager.xremap =
     {
       config,
+      lib,
       osConfig,
       pkgs,
       ...
     }:
-    {
-      xdg.configFile."xremap/config.yml".source =
-        if osConfig.my.xremap.config != null then
-          osConfig.my.xremap.config
+    let
+      files = osConfig.my.xremap.config;
+      sources =
+        if files == null then
+          [ (pkgs.replaceVars ../home/xremap/config.yml { home = config.home.homeDirectory; }) ]
         else
-          pkgs.replaceVars ../home/xremap/config.yml { home = config.home.homeDirectory; };
+          files;
+    in
+    {
+      xdg.configFile = lib.listToAttrs (
+        lib.zipListsWith (name: source: {
+          name = "xremap/${name}";
+          value.source = source;
+        }) (keymapNames files) sources
+      );
       home.file.".local/bin/xremap-focus-or-launch" = {
         source = ../home/xremap/focus-or-launch;
         executable = true;
