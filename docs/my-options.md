@@ -101,6 +101,784 @@ null
 
 
 
+## my\.approval\.enable
+
+
+
+The approval daemon (approvald); on when any method is\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+any method enabled
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.callers
+
+
+
+Who may ask for approvals, by the peer’s user or group, and which
+methods each may use at most\. A request’s own ` methods ` narrow this\.
+
+
+
+*Type:*
+attribute set of (submodule)
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.callers\.\<name>\.groups
+
+
+
+Groups (the peer’s primary or supplementary group) that are this caller; uids are matched first\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.callers\.\<name>\.methods
+
+
+
+Methods this caller may use\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.callers\.\<name>\.rateLimit\.burst
+
+
+
+Requests allowed at once\.
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+
+```nix
+3
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.callers\.\<name>\.rateLimit\.perMinute
+
+
+
+Requests per minute after the burst\.
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+
+```nix
+6
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.callers\.\<name>\.users
+
+
+
+Users (the peer’s uid) that are this caller\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.defaultTimeout
+
+
+
+Seconds a request waits when the caller names no timeout\.
+
+
+
+*Type:*
+integer between 5 and 600 (both inclusive)
+
+
+
+*Default:*
+
+```nix
+60
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.maxTimeout
+
+
+
+Longest wait a caller may ask for\.
+
+
+
+*Type:*
+integer between 5 and 600 (both inclusive)
+
+
+
+*Default:*
+
+```nix
+300
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.desktop\.enable
+
+
+
+Whether to enable the desktop notification (weak: any of the user’s processes can answer) approval method\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.desktop\.allowHighRisk
+
+
+
+Whether desktop notification (weak: any of the user’s processes can answer) may approve requests marked high risk\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.fake\.enable
+
+
+
+Whether to enable the fake (tests only) approval method\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.fake\.allowHighRisk
+
+
+
+Whether fake (tests only) may approve requests marked high risk\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.fake\.answer
+
+
+
+The fake method’s answer\.
+
+
+
+*Type:*
+one of “approve”, “deny”, “fail”, “timeout”
+
+
+
+*Default:*
+
+```nix
+"approve"
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.fake\.answerFile
+
+
+
+A file (path as a string) whose content overrides ` answer ` per request\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.fake\.delay
+
+
+
+Seconds before the fake method answers\.
+
+
+
+*Type:*
+signed integer
+
+
+
+*Default:*
+
+```nix
+0
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.fake\.strength
+
+
+
+How the fake method counts\.
+
+
+
+*Type:*
+one of “strong”, “weak”
+
+
+
+*Default:*
+
+```nix
+"strong"
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.mac\.enable
+
+
+
+Whether to enable the Mac (SSH-agent signature over the Mac approval tunnel) approval method\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.mac\.allowHighRisk
+
+
+
+Whether Mac (SSH-agent signature over the Mac approval tunnel) may approve requests marked high risk\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.phone\.enable
+
+
+
+Whether to enable the phone (passkey on a one-time page) approval method\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.phone\.allowHighRisk
+
+
+
+Whether phone (passkey on a one-time page) may approve requests marked high risk\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.phone\.delivery
+
+
+
+How the one-time link reaches the phone, all at once: ` kdeconnect `
+shares it to the phone, ` notification ` shows it on the desktop
+(Open), ` qr ` shows it as a QR code to scan\.
+
+
+
+*Type:*
+list of (one of “kdeconnect”, “notification”, “qr”)
+
+
+
+*Default:*
+
+```nix
+[
+  "kdeconnect"
+]
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.phone\.kdeconnectDevice
+
+
+
+KDE Connect ID of the phone (` kdeconnect-cli -l `), for the ` kdeconnect ` delivery\.
+
+
+
+*Type:*
+null or string matching the pattern \[A-Za-z0-9_]+
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"0123456789abcdef0123456789abcdef"
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.yubikey\.enable
+
+
+
+Whether to enable the security key (FIDO2 touch; enroll with ` approval enroll yubikey `) approval method\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.methods\.yubikey\.allowHighRisk
+
+
+
+Whether security key (FIDO2 touch; enroll with ` approval enroll yubikey `) may approve requests marked high risk\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.onDeny
+
+
+
+What a “Deny” from one method does while others still wait: ` deny `
+refuses the request at once; ` continue ` lets another method still
+approve it (the request is denied if none does)\.
+
+
+
+*Type:*
+one of “deny”, “continue”
+
+
+
+*Default:*
+
+```nix
+"deny"
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.pam\.sudo\.enable
+
+
+
+A sufficient sudo PAM step that asks approvald (after the Mac step,
+before the security key and the password, which keep working)\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+config.my.approval.methods.phone.enable
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.pam\.sudo\.methods
+
+
+
+Methods the sudo step may use (pam_rssh and pam_u2f stay separate PAM steps)\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[
+  "phone"
+]
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.pam\.sudo\.timeout
+
+
+
+Seconds sudo waits for an approval before trying the next method\.
+
+
+
+*Type:*
+integer between 5 and 120 (both inclusive)
+
+
+
+*Default:*
+
+```nix
+30
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
+## my\.approval\.user
+
+
+
+The user who approves\. Callers can’t choose another\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+config.my.user.name
+```
+
+*Declared by:*
+ - [modules/approval/default\.nix](../modules/approval/default.nix)
+
+
+
 ## my\.dashboard\.settingsFile
 
 
@@ -1012,96 +1790,6 @@ false
 
 ```nix
 true
-```
-
-*Declared by:*
- - [modules/my\.nix](../modules/my.nix)
-
-
-
-## my\.phoneApproval\.enable
-
-
-
-Whether to enable sudo approval from the phone: a one-time link goes to the phone through
-KDE Connect, and a passkey on the phone approves it\. The YubiKey and the
-password still work; enroll the phone with ` phone-approval-enroll `\.
-
-
-
-*Type:*
-boolean
-
-
-
-*Default:*
-
-```nix
-false
-```
-
-
-
-*Example:*
-
-```nix
-true
-```
-
-*Declared by:*
- - [modules/my\.nix](../modules/my.nix)
-
-
-
-## my\.phoneApproval\.device
-
-
-
-KDE Connect ID of the phone (` kdeconnect-cli -l `)\.
-
-
-
-*Type:*
-null or string matching the pattern \[A-Za-z0-9_]+
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-
-
-*Example:*
-
-```nix
-"0123456789abcdef0123456789abcdef"
-```
-
-*Declared by:*
- - [modules/my\.nix](../modules/my.nix)
-
-
-
-## my\.phoneApproval\.timeout
-
-
-
-Seconds sudo waits for the phone before trying the next method\.
-
-
-
-*Type:*
-integer between 5 and 120 (both inclusive)
-
-
-
-*Default:*
-
-```nix
-30
 ```
 
 *Declared by:*
@@ -2257,8 +2945,6 @@ null
 
 
 ## my\.xremap\.devices
-
-
 
 Devices xremap remaps\.
 

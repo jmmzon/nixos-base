@@ -19,7 +19,7 @@ in
       erebor-modes
       headphone-eq
       mac-approval
-      phone-approval
+      approval
       spotify
       sunshine
       remote-desktop

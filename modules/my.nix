@@ -566,24 +566,6 @@
           };
         };
 
-        phoneApproval = {
-          enable = lib.mkEnableOption ''
-            sudo approval from the phone: a one-time link goes to the phone through
-            KDE Connect, and a passkey on the phone approves it. The YubiKey and the
-            password still work; enroll the phone with `phone-approval-enroll`'';
-          device = lib.mkOption {
-            type = lib.types.nullOr (lib.types.strMatching "[A-Za-z0-9_]+");
-            default = null;
-            example = "0123456789abcdef0123456789abcdef";
-            description = "KDE Connect ID of the phone (`kdeconnect-cli -l`).";
-          };
-          timeout = lib.mkOption {
-            type = lib.types.ints.between 5 120;
-            default = 30;
-            description = "Seconds sudo waits for the phone before trying the next method.";
-          };
-        };
-
         nanokvm = {
           enable = lib.mkEnableOption "NanoKVM wake and outlet readings in the dashboard";
           url = lib.mkOption {
@@ -620,10 +602,6 @@
         {
           assertion = cfg.macApproval.enable -> cfg.macApproval.addresses != [ ];
           message = "my.macApproval.enable needs my.macApproval.addresses: the Mac's Tailscale and LAN addresses.";
-        }
-        {
-          assertion = cfg.phoneApproval.enable -> cfg.phoneApproval.device != null;
-          message = "my.phoneApproval.enable needs my.phoneApproval.device: the phone's KDE Connect ID (`kdeconnect-cli -l`).";
         }
         {
           assertion = cfg.nanokvm.enable -> cfg.nanokvm.url != null;

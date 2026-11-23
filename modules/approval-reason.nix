@@ -43,15 +43,22 @@
             pkgs.inotify-tools
           ]
         }
-        file="${dir}/$(id -un)"
-        last=""
+        # Two sources: sudo/Polkit (PAM, root-written) and approvald requests
+        # (the session's approval agent writes $XDG_RUNTIME_DIR/approval-reason).
+        runtime="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+        files=("${dir}/$(id -un)" "$runtime/approval-reason")
+        dirs=("${dir}")
+        [ -d "$runtime" ] && dirs+=("$runtime")
+        declare -A last
         while true; do
-          inotifywait -qq -e close_write,moved_to "${dir}" || sleep 1
-          [ -r "$file" ] || continue
-          IFS=$'\t' read -r stamp what < "$file" || continue
-          [ "$stamp" != "$last" ] || continue
-          last="$stamp"
-          printf '%s\n' "$what"
+          inotifywait -qq -e close_write,moved_to "''${dirs[@]}" || sleep 1
+          for file in "''${files[@]}"; do
+            [ -r "$file" ] || continue
+            IFS=$'\t' read -r stamp what < "$file" || continue
+            [ "$stamp" != "''${last[$file]:-}" ] || continue
+            last[$file]="$stamp"
+            printf '%s\n' "$what"
+          done
         done
       '';
       reasonRule = order: {
