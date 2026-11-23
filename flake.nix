@@ -26,7 +26,7 @@
       url = "github:question44/noctalia-greeter/6a1e9bb263ae214fa4c330939252feabecec0010";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    umbriel.url = "github:question44/umbriel/bab6f762822be64c0643f6b6be34cfb8e0085bfd";
+    umbriel.url = "github:question44/umbriel/68298b0abc27b980e3491d943e69bdff0272d05c";
     millennium = {
       url = "github:SteamClientHomebrew/Millennium/6522c24e8bd3de41a7601ceb4e78a619930f1704?dir=packages/nix";
       inputs.nixpkgs.follows = "nixpkgs";
