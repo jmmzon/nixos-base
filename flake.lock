@@ -536,17 +536,17 @@
         "xdg-desktop-portal-umbriel": "xdg-desktop-portal-umbriel"
       },
       "locked": {
-        "lastModified": 1795427458,
-        "narHash": "sha256-0n9xNrzGLSlLpxCGxxEWk5cHCVcCEqT51SSk9fDYBKs=",
+        "lastModified": 1795473984,
+        "narHash": "sha256-2yqi/J/Sp8J3LXUKU4uU8ypR34uinNNHKMVY+PWzitc=",
         "owner": "question44",
         "repo": "umbriel",
-        "rev": "68298b0abc27b980e3491d943e69bdff0272d05c",
+        "rev": "40cc240dbc511df6a6e65e5883f12d557f443ba8",
         "type": "github"
       },
       "original": {
         "owner": "question44",
         "repo": "umbriel",
-        "rev": "68298b0abc27b980e3491d943e69bdff0272d05c",
+        "rev": "40cc240dbc511df6a6e65e5883f12d557f443ba8",
         "type": "github"
       }
     },
