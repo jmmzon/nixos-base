@@ -111,8 +111,18 @@
           kdePackages.kconfig
         ];
         text = ''
-          # Usage: erebor-theme-opacity [dark|light] [--links-only]
+          # Usage: erebor-theme-opacity [--reset] [dark|light] [--links-only]
           # Without a mode: $NOCTALIA_THEME_MODE (hooks), else Noctalia's current mode.
+          # --reset: Noctalia's surface opacities were just put back to its
+          # config file's values (dark mode's), e.g. a new config was loaded and
+          # the runtime values removed from settings.toml. Forget the values
+          # remembered per mode and derive this mode's (and reduce
+          # transparency's) from the config again. Darkly is left alone.
+          reset=false
+          if [ "''${1:-}" = --reset ]; then
+            reset=true
+            shift
+          fi
           export PATH="$PATH:/etc/profiles/per-user/$USER/bin"
           state=${lib.escapeShellArg state}
           variants=${variants}
@@ -303,8 +313,8 @@
             fi
           fi
 
-          # Reduce transparency turned on or off since the last run.
-          if $reduce && ! $applied; then
+          # Reduce transparency's Noctalia part: remember the live values, raise them.
+          noctalia_reduce_on() {
             : > "$state/reduce-base"
             while read -r k floor; do
               [ -n "$k" ] || continue
@@ -313,13 +323,32 @@
               printf '%s %s\n' "$k" "$v" >> "$state/reduce-base"
               set_live "$k" "$(raised "$v" "$floor")"
             done <<< "$reduce_keys"
-            darkly_read > "$state/reduce-base-darkly.src"
             # Noctalia's panels: "glass" becomes "soft" (solid and soft stay).
             panel="$(noctalia msg config-get shell.panel.transparency_mode 2>/dev/null | tr -d "'\"" || true)"
+            rm -f "$state/reduce-base-panel"
             if [ -n "$panel" ]; then
               printf '%s\n' "$panel" > "$state/reduce-base-panel"
               [ "$panel" = glass ] && set_live shell.panel.transparency_mode "'soft'"
             fi
+          }
+
+          if $reset; then
+            rm -f "$state/noctalia-dark" "$state/noctalia-light" "$state/reduce-base" "$state/reduce-base-panel"
+            if [ "$mode" = light ]; then
+              for k in "''${noctalia_keys[@]}"; do
+                v="$(live_value "$k" || true)"
+                [ -n "$v" ] || continue
+                set_live "$k" "$(awk -v v="$v" -v f="$ratio" 'BEGIN { x = v * f; if (x > 1) x = 1; printf "%.3f", x }')"
+              done
+            fi
+            if $applied; then noctalia_reduce_on; fi
+            exit 0
+          fi
+
+          # Reduce transparency turned on or off since the last run.
+          if $reduce && ! $applied; then
+            noctalia_reduce_on
+            darkly_read > "$state/reduce-base-darkly.src"
             applied=true
             touch "$state/reduce-applied"
             darkly_write "$state/reduce-base-darkly.src" 1
