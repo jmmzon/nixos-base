@@ -9,8 +9,9 @@
 #   Strata through `noctalia msg templates-apply`; Zen at its next start);
 # - picks the liquid glass for that mode: $state/umbriel-glass.toml includes
 #   glass-<mode>.toml beside Umbriel's config (glass-light.toml, linked by
-#   modules/umbriel.nix: params overrides for light mode), or is removed when
-#   there is none. Umbriel's config.toml includes it (optional) right after
+#   modules/umbriel.nix: params overrides for light mode) and, while Reduce
+#   transparency is on, a file that turns the window glass's pointer light off
+#   (HL_GAIN = 0), or is removed when there is neither. Umbriel's config.toml includes it (optional) right after
 #   glass.toml. A file with an include, not a symlink: Umbriel watches an
 #   include's resolved target, so it would miss a symlink being repointed;
 #   it does see this file replaced or removed, and edits of the target;
@@ -108,6 +109,12 @@
           "osd.background_opacity"
           "notification.background_opacity"
         ];
+      # Reduce transparency: no pointer light in the window glass (HL_GAIN in
+      # the host's liquid-glass-lens.glsl; an unknown param is only a #define).
+      reducedGlass = pkgs.writeText "umbriel-glass-reduced.toml" ''
+        [effects.params.glass-window]
+        HL_GAIN = 0.0
+      '';
       script = pkgs.writeShellApplication {
         name = "erebor-theme-opacity";
         runtimeInputs = with pkgs; [
@@ -237,12 +244,17 @@
           # Liquid glass: this mode's params overrides, if Umbriel's config has
           # any (glass-light.toml). Replaced by a rename and only when it
           # changes, so Umbriel reloads once, never seeing it missing between.
+          # While Reduce transparency is on, the window glass's pointer light is off too.
           glass_src="''${XDG_CONFIG_HOME:-$HOME/.config}/umbriel/glass-$mode.toml"
           glass_inc="$state/umbriel-glass.toml"
-          if [ -e "$glass_src" ]; then
+          glass_files=()
+          [ -e "$glass_src" ] && glass_files+=("\"$glass_src\"")
+          $reduce && glass_files+=("\"${reducedGlass}\"")
+          if [ "''${#glass_files[@]}" -gt 0 ]; then
+            glass_list="$(IFS=,; printf '%s' "''${glass_files[*]}")"
             glass_want="# Written by erebor-theme-opacity: $mode mode's liquid glass.
           [include.optional]
-          files = [\"$glass_src\"]"
+          files = [''${glass_list//,/, }]"
             if [ "$(cat "$glass_inc" 2>/dev/null || true)" != "$glass_want" ]; then
               printf '%s\n' "$glass_want" > "$glass_inc.tmp"
               mv -f "$glass_inc.tmp" "$glass_inc"
