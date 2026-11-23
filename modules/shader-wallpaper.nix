@@ -1,13 +1,10 @@
-# Live "shader:" wallpaper: Noctalia patched to run Shadertoy-style GLSL shaders
+# Live "shader:" wallpaper: the noctalia fork's commits run Shadertoy-style GLSL shaders
 # as a wallpaper (single pass, channel images, buffer passes, KDE Shader
 # Wallpaper's window inputs), with [wallpaper.shader] settings in
 # home/noctalia/config.toml, a pause behind windows (pause_when_covered) and the
 # noctalia-shader-thumbnail tool. The picker is the janzon/live-wallpaper plugin
 # (home/noctalia/plugins/live-wallpaper).
-# Source: ~/src/noctalia-sequoia, branch shader-live, stacked on sequoia-live;
-# the patch is `git format-patch --stdout sequoia-live..shader-live`. It needs
-# the sequoia patch and applies right after it; the lock screen glass patch is
-# stacked on top of it. Design: docs/shader-wallpaper-design.md in that repo.
+# Design: docs/shader-wallpaper-design.md in the fork.
 #
 # my.shaderWallpaper.kdeLibrary installs KDE Shader Wallpaper's shaders (pinned)
 # to share/noctalia/shaders/kde, where Noctalia and the picker find them through
@@ -60,10 +57,9 @@
       assertions = [
         {
           assertion = config.my.sequoiaWallpaper.enable;
-          message = "my.shaderWallpaper needs my.sequoiaWallpaper: its patch is stacked on the sequoia patch.";
+          message = "my.shaderWallpaper needs my.sequoiaWallpaper: its fork commits are stacked on the Sequoia ones.";
         }
       ];
-      programs.noctalia.patches = lib.mkOrder 1600 [ ../patches/noctalia-shader-wallpaper.patch ];
       environment.systemPackages = lib.optional cfg.kdeLibrary kdeShaderLibrary;
       # The system profile links only listed share/ subdirectories; this one is where
       # Noctalia looks (XDG_DATA_DIRS/noctalia/shaders).

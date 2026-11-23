@@ -2,50 +2,12 @@
 # configuration (home/umbriel/config.toml) with the helper scripts it binds.
 { inputs, ... }:
 let
-  # Upstream Umbriel plus local patches. backdrop-effect adds the "backdrop"
-  # effect kind that the liquid-glass rule uses (shader drawn by the window's
-  # blur node, under the window). touchpad-gestures adds
-  # input.touchpad.three_finger_drag, moves workspace swipes to four fingers
-  # and opens the overview with a four-finger pinch; it applies on top of
-  # backdrop-effect (~/src/umbriel, branch touchpad-gestures). scroll-accel-curve
-  # lets a custom accel_profile carry a libinput scroll curve ("... scroll
-  # <step> <points...>"); it applies on top of touchpad-gestures (branch
-  # touchpad-scroll-accel). strip-scroll-clamp stops the four-finger strip
-  # scroll at its first and last column instead of overscrolling and bouncing
-  # back; since upstream 1bbbf155 it replaces upstream's damped rubber band
-  # with a hard stop at ScrollingLayout::scrollBounds (branch
-  # rebase-1bbbf155 carries the whole series on that upstream).
-  # overview-scroll-handoff drops the rest of a two-finger scroll when the
-  # overview opens or closes under it, so an edge swipe that opens it does not
-  # also scroll it (branch overview-scroll-handoff, on touchpad-scroll-accel;
-  # touches only src/input/cursor.*). glass-regions adds the umbriel_glass_v1
-  # protocol: a client names rounded rectangles of its window and the backdrop
-  # preset (liquid-glass-lens-regions.glsl) draws glass only there (branch
-  # glass-regions, on strip-scroll-clamp; ~/src/vitrum is the demo client).
-  # umbriel-effect-params.patch: a preset's `params` table (and
-  # [effects.params.<preset>] overrides from any file) become #defines ahead of
-  # its shader, so one shader serves several presets (branch glass-params).
-  # umbriel-backdrop-corners.patch: a window's backdrop glass follows its
-  # rounded corners instead of drawing a square under them (2026-11-17).
-  # umbriel-glass-light.patch: backdrop programs see the brightest area of
-  # their output (umbriel_light, [effects] glass_light = off|wallpaper|screen|auto),
-  # so the lens shaders light the rim from it (branch glass-light, SYS-139).
-  # Both the system and Home Manager install it.
-  patched =
-    pkgs:
-    inputs.umbriel.packages.${pkgs.stdenv.hostPlatform.system}.default.overrideAttrs (old: {
-      patches = (old.patches or [ ]) ++ [
-        ../patches/umbriel-backdrop-effect.patch
-        ../patches/umbriel-touchpad-gestures.patch
-        ../patches/umbriel-scroll-accel-curve.patch
-        ../patches/umbriel-strip-scroll-clamp.patch
-        ../patches/umbriel-overview-scroll-handoff.patch
-        ../patches/umbriel-glass-regions.patch
-        ../patches/umbriel-effect-params.patch
-        ../patches/umbriel-backdrop-corners.patch
-        ../patches/umbriel-glass-light.patch
-      ];
-    });
+  # Umbriel from the fork's `erebor` branch (flake input `umbriel`): upstream
+  # plus the local commits (backdrop effect kind, touchpad gestures, scroll
+  # accel curve, strip scroll clamp, overview scroll handoff, umbriel_glass_v1
+  # regions, effect params, backdrop corners, glass light). Rebase that branch
+  # on upstream to update. Both the system and Home Manager install it.
+  patched = pkgs: inputs.umbriel.packages.${pkgs.stdenv.hostPlatform.system}.default;
   # my.vmwgfxDmabufFix (VMware guests): also rebuild against patched wlroots.
   forHost =
     pkgs: my:

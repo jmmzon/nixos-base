@@ -21,12 +21,12 @@
     monstar.url = "github:rockorager/monstar/860f55d7000692e98a37b814d0eebc3575fede73";
     claude-desktop-nix.url = "github:tomsch/claude-desktop-nix/cec2c23d3f04accc5adeb93e94b02e4fd603510b";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    noctalia.url = "github:noctalia-dev/noctalia-shell/f90f230f8116eff55e4e96a7a97756c2b00b7ac2";
+    noctalia.url = "github:question44/noctalia/4193c82eeede969c9e918b788a2eb7f676e33f1e";
     noctalia-greeter = {
-      url = "github:noctalia-dev/noctalia-greeter/effcb9ffc33f7120cbc6cfc6c6527e9da763a0e9";
+      url = "github:question44/noctalia-greeter/6a1e9bb263ae214fa4c330939252feabecec0010";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    umbriel.url = "github:noctalia-dev/umbriel/1bbbf155d25b2a338c7b6d52863d9f6efaf346ac";
+    umbriel.url = "github:question44/umbriel/871472f6efd4000ada810f4f8d27e907819f2ffc";
     millennium = {
       url = "github:SteamClientHomebrew/Millennium/6522c24e8bd3de41a7601ceb4e78a619930f1704?dir=packages/nix";
       inputs.nixpkgs.follows = "nixpkgs";

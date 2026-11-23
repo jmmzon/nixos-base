@@ -11,6 +11,5 @@
   flake.modules.nixos.sequoia-wallpaper =
     { config, lib, ... }:
     lib.mkIf config.my.sequoiaWallpaper.enable {
-      programs.noctalia.patches = lib.mkAfter [ ../patches/noctalia-sequoia-live-wallpaper.patch ];
     };
 }

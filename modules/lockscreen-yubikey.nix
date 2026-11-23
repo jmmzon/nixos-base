@@ -15,9 +15,6 @@
       helper = pkgs.callPackage ../packages/noctalia-key-auth { };
     in
     lib.mkIf config.my.yubikey.enable {
-      # Applied first; later Noctalia patches are made on top of it.
-      programs.noctalia.patches = lib.mkBefore [ ../patches/noctalia-security-key-unlock.patch ];
-
       systemd.user.services.noctalia.environment.NOCTALIA_SECURITY_KEY_HELPER = lib.getExe helper;
 
       security.pam.services.noctalia-key = {

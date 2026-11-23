@@ -371,17 +371,17 @@
         "nixpkgs": "nixpkgs_4"
       },
       "locked": {
-        "lastModified": 1793981467,
-        "narHash": "sha256-T4NJRVRMsi1kDZAUOMM28PjYdoEhxikpOeaSYGgxhC0=",
-        "owner": "noctalia-dev",
-        "repo": "noctalia-shell",
-        "rev": "f90f230f8116eff55e4e96a7a97756c2b00b7ac2",
+        "lastModified": 1795414444,
+        "narHash": "sha256-6p2rHhYcE8wWbB70/ysJDwrQ0tJoP6+wSmYCxyDKOcM=",
+        "owner": "question44",
+        "repo": "noctalia",
+        "rev": "4193c82eeede969c9e918b788a2eb7f676e33f1e",
         "type": "github"
       },
       "original": {
-        "owner": "noctalia-dev",
-        "repo": "noctalia-shell",
-        "rev": "f90f230f8116eff55e4e96a7a97756c2b00b7ac2",
+        "owner": "question44",
+        "repo": "noctalia",
+        "rev": "4193c82eeede969c9e918b788a2eb7f676e33f1e",
         "type": "github"
       }
     },
@@ -392,17 +392,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1793502517,
-        "narHash": "sha256-/0HVj6rm15Ihi0fDv83yvl+tH7iNqwKRWCb5SpSExf0=",
-        "owner": "noctalia-dev",
+        "lastModified": 1795414446,
+        "narHash": "sha256-ZgNGxWmjRZrQ0y4oAcJ/H7I9l24R8czOsDf/Ngbv5+Y=",
+        "owner": "question44",
         "repo": "noctalia-greeter",
-        "rev": "effcb9ffc33f7120cbc6cfc6c6527e9da763a0e9",
+        "rev": "6a1e9bb263ae214fa4c330939252feabecec0010",
         "type": "github"
       },
       "original": {
-        "owner": "noctalia-dev",
+        "owner": "question44",
         "repo": "noctalia-greeter",
-        "rev": "effcb9ffc33f7120cbc6cfc6c6527e9da763a0e9",
+        "rev": "6a1e9bb263ae214fa4c330939252feabecec0010",
         "type": "github"
       }
     },
@@ -536,17 +536,17 @@
         "xdg-desktop-portal-umbriel": "xdg-desktop-portal-umbriel"
       },
       "locked": {
-        "lastModified": 1794781900,
-        "narHash": "sha256-bk3S5r5fNw43SpPKqAkIi5D5IchuUX9VHK6z2T50duE=",
-        "owner": "noctalia-dev",
+        "lastModified": 1795414437,
+        "narHash": "sha256-qbMsfRRuGjNQ9J1aDqBMVMo5fiV3O8RdQcwlJvBugNs=",
+        "owner": "question44",
         "repo": "umbriel",
-        "rev": "1bbbf155d25b2a338c7b6d52863d9f6efaf346ac",
+        "rev": "871472f6efd4000ada810f4f8d27e907819f2ffc",
         "type": "github"
       },
       "original": {
-        "owner": "noctalia-dev",
+        "owner": "question44",
         "repo": "umbriel",
-        "rev": "1bbbf155d25b2a338c7b6d52863d9f6efaf346ac",
+        "rev": "871472f6efd4000ada810f4f8d27e907819f2ffc",
         "type": "github"
       }
     },

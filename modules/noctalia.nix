@@ -20,15 +20,14 @@
         inputs.noctalia-greeter.nixosModules.default
         inputs.noctalia.nixosModules.default
         {
-          # Features that patch Noctalia (lockscreen-yubikey, sequoia-wallpaper, lockscreen-glass) add
-          # their patch here; they apply in list order to the flake input's package.
+          # Local changes live as commits on the forks' `erebor` branches (flake inputs
+          # noctalia, noctalia-greeter); these lists stay for one-off patches on top.
           options.programs.noctalia.patches = lib.mkOption {
             type = lib.types.listOf lib.types.path;
             default = [ ];
             internal = true;
             description = "Patches applied, in order, to Noctalia from the flake input.";
           };
-          # Features that patch the greeter (greeter-glass, plymouth-greeter-handoff) add their patch here.
           options.programs.noctalia.greeterPatches = lib.mkOption {
             type = lib.types.listOf lib.types.path;
             default = [ ];
@@ -59,20 +58,16 @@
 
       services.displayManager.noctalia-greeter = {
         enable = true;
-        package = lib.mkIf (greeterPatches != [ ] || config.my.vmwgfxDmabufFix) (
+        package =
           let
             base = inputs.noctalia-greeter.packages.${pkgs.stdenv.hostPlatform.system}.default;
-            patched =
-              if greeterPatches == [ ] then
-                base
-              else
-                base.overrideAttrs (old: {
-                  patches = (old.patches or [ ]) ++ greeterPatches;
-                  buildInputs = (old.buildInputs or [ ]) ++ [ pkgs.libdrm ];
-                });
+            # The fork's keep-splash commit reads the boot framebuffer through libdrm.
+            patched = base.overrideAttrs (old: {
+              patches = (old.patches or [ ]) ++ greeterPatches;
+              buildInputs = (old.buildInputs or [ ]) ++ [ pkgs.libdrm ];
+            });
           in
-          if config.my.vmwgfxDmabufFix then import ./_wlroots-vmwgfx.nix pkgs patched else patched
-        );
+          if config.my.vmwgfxDmabufFix then import ./_wlroots-vmwgfx.nix pkgs patched else patched;
         passwordless-sync-users = [ "${user}" ];
         settings = {
           appearance.scheme = "Synced";

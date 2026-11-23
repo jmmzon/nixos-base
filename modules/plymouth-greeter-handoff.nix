@@ -8,11 +8,9 @@
 #   greeter's compositor takes over the display.
 # - Once the greeter client is running, `plymouth quit --retain-splash` ends
 #   Plymouth without clearing the screen. If greetd fails, plymouth-quit runs.
-# - patches/noctalia-greeter-keep-splash.patch: the greeter's compositor copies
-#   the splash frame still on screen before its first modeset and shows it
-#   instead of black until the greeter has drawn a full-size frame. Source:
-#   ~/src/noctalia-greeter-splash, branch keep-plymouth-splash on the pinned
-#   input rev; the patch is `git format-patch -1` there.
+# - The greeter fork's keep-splash commit: its compositor copies the splash
+#   frame still on screen before its first modeset and shows it instead of
+#   black until the greeter has drawn a full-size frame.
 # - patches/greetd-keep-plymouth-splash.patch: greetd leaves the VT in graphics
 #   mode (no text mode, no clear) while /run/plymouth/pid exists.
 # plymouthd accepts commands only from root, so this runs in system units, not
@@ -30,12 +28,6 @@
       greeterUser = config.services.greetd.settings.default_session.user;
     in
     lib.mkMerge [
-      # Kept apart from the greetd condition: the greeter package feeds greetd's config.
-      (lib.mkIf config.boot.plymouth.enable {
-        programs.noctalia.greeterPatches = lib.mkOrder 2000 [
-          ../patches/noctalia-greeter-keep-splash.patch
-        ];
-      })
       (lib.mkIf (config.boot.plymouth.enable && config.services.greetd.enable) {
         # Drops greetd's After=plymouth-quit-wait.service (nixpkgs option).
         services.greetd.greeterManagesPlymouth = true;

@@ -4,12 +4,9 @@
 # glass-window preset (shader defaults, glass.toml params, glass tuner drafts),
 # imperfections included, and the greeter sync passes the same values on. Noctalia
 # draws the lock as one opaque surface, so the compositor cannot do this: the
-# patch copies what the lock screen has drawn under each box, frosts it and
+# fork commit copies what the lock screen has drawn under each box, frosts it and
 # bends it at the rim in Noctalia itself. Desktop widgets are left alone.
-# Source: ~/src/noctalia-glass, branch lockscreen-glass (on shader-live, which is
-# on sequoia-live, plus the security-key patch); the patch is `git diff HEAD~6
-# HEAD` there. Its context includes those patches, so it needs them and applies
-# after them.
+# The code is a commit on the noctalia fork's erebor branch.
 {
   flake.modules.nixos.lockscreen-glass =
     { config, lib, ... }:
@@ -21,6 +18,5 @@
         && config.my.shaderWallpaper.enable
       )
       {
-        programs.noctalia.patches = lib.mkOrder 2000 [ ../patches/noctalia-lockscreen-liquid-glass.patch ];
       };
 }
