@@ -2912,8 +2912,6 @@ absolute path
 
 ## my\.xremap\.config
 
-
-
 The user’s xremap keymap (~/\.config/xremap/config\.yml)\. Null deploys the
 base’s home/xremap/config\.yml, with its launcher paths under the user’s
 home directory\. The keymap applies where the xremap aspect runs\.
@@ -2945,6 +2943,8 @@ null
 
 
 ## my\.xremap\.devices
+
+
 
 Devices xremap remaps\.
 
