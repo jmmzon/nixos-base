@@ -5,8 +5,8 @@
 # is drawn under the panel, frosts it and bends it at the rim. Its knobs and flaws
 # are Umbriel's glass-window values as the shell's greeter sync staged them
 # ([appearance.glass] in sync.toml); without them it keeps the built-in glass.
-# Source: ~/src/noctalia-greeter, branch lockscreen-glass on the pinned input
-# rev; the patch is `git diff HEAD~4 HEAD -- . ':!1'` there. Re-export on an input bump.
+# Source: ~/src/noctalia-greeter, branch glass-light (lockscreen-glass + the glass light) on the pinned input
+# rev; the patch is `git diff HEAD~5 HEAD -- . ':!1'` there. Re-export on an input bump.
 #
 # With my.sequoiaWallpaper the greeter also animates the live Sequoia scene on
 # outputs whose desktop wallpaper is `sequoia:` (the shell syncs the scene and its

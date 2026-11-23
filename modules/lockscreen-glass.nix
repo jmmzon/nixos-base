@@ -7,7 +7,7 @@
 # patch copies what the lock screen has drawn under each box, frosts it and
 # bends it at the rim in Noctalia itself. Desktop widgets are left alone.
 # Source: ~/src/noctalia-glass, branch lockscreen-glass (on shader-live, which is
-# on sequoia-live, plus the security-key patch); the patch is `git diff HEAD~5
+# on sequoia-live, plus the security-key patch); the patch is `git diff HEAD~6
 # HEAD` there. Its context includes those patches, so it needs them and applies
 # after them.
 {

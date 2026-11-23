@@ -55,6 +55,43 @@
 #ifndef RIM_LIGHT
 #define RIM_LIGHT -60.0 // [-180..180 deg] its light direction, degrees
 #endif
+
+// == Screen light ==
+// The rim light turns towards the brightest area on the output (Umbriel's
+// umbriel_light, [effects] glass_light: the blurred wallpaper, or the live
+// screen), seen from each point of the edge, so every pane is lit from its own
+// side. Without a clear bright area (strength 0) the fixed angles above hold.
+#ifndef LIGHT_FOLLOW
+#define LIGHT_FOLLOW 1.0 // [0..1] how far the rim light turns towards the brightest area; 0 = fixed angles
+#endif
+#ifndef LIGHT_COLOR
+#define LIGHT_COLOR 0.6 // [0..1] how much the rim light takes that area's colour
+#endif
+#ifndef LIGHT_GAIN
+#define LIGHT_GAIN 0.5 // [0..1] how much the rim brightness follows how strongly that area stands out
+#endif
+
+// Unit direction towards the light at uv: the fixed angle (deg), turned to the screen light.
+vec2 lightDir(vec2 uv, float deg) {
+  vec2 fixedDir = vec2(cos(radians(deg)), sin(radians(deg)));
+  vec2 d = umbriel_light_dir(uv);
+  float k = clamp(LIGHT_FOLLOW * umbriel_light.z, 0.0, 1.0);
+  if (k <= 0.0 || dot(d, d) == 0.0) {
+    return fixedDir;
+  }
+  vec2 m = mix(fixedDir, d, k);
+  return dot(m, m) > 1e-6 ? normalize(m) : d;
+}
+
+// Colour of the light: white, tinted towards the bright area's colour.
+vec3 lightTint() {
+  return mix(vec3(1.0), umbriel_light_color, LIGHT_COLOR * umbriel_light.z * umbriel_light.w);
+}
+
+// Brightness of the light: 0.4x for a faint bright area up to 1.6x for a stark one.
+float lightGain() {
+  return mix(1.0, 0.4 + 1.2 * umbriel_light.z, LIGHT_GAIN * umbriel_light.w);
+}
 #ifndef LIGHT_TINT
 #define LIGHT_TINT 1.0 // [0..1] edge light colour: 0 white, 1 the backdrop just outside the edge
 #endif
@@ -381,8 +418,7 @@ vec4 backdrop(vec2 uv) {
   // Thin shapes (bar capsules): the flaws never shift more than a tenth of the thickness.
   vec3 col = glassBody(uv, off, uv * umbriel_size, s, fadeIn, 0.1 * thick);
 
-  float la = radians(LIGHT);
-  float facing = dot(n, vec2(cos(la), sin(la)));
+  float facing = dot(n, lightDir(uv, LIGHT));
   float shade = 0.12 + 0.88 * (facing > 0.0 ? facing : -0.4 * facing);
   float crisp = max(0.0, 1.0 - s / SPECULAR_W);
   float glow = max(0.0, 1.0 - s / (SPECULAR_W * 5.0));
@@ -390,13 +426,13 @@ vec4 backdrop(vec2 uv) {
   // the edge, brought up to full brightness so it still reads as light.
   vec3 around = umbriel_sample(uv + n * (s + LIGHT_OUT) / umbriel_size).rgb;
   vec3 hue = around / max(max(around.r, max(around.g, around.b)), 0.05);
-  vec3 light = mix(vec3(1.0), mix(hue, vec3(1.0), LIGHT_WHITE), LIGHT_TINT);
+  vec3 light = mix(vec3(1.0), mix(hue, vec3(1.0), LIGHT_WHITE), LIGHT_TINT) * lightTint();
 
-  col += light * min(1.0, SPECULAR * (crisp * crisp + 0.3 * glow * glow) * shade);
+  col += light * min(1.0, SPECULAR * lightGain() * (crisp * crisp + 0.3 * glow * glow) * shade);
 
-  float ra = radians(RIM_LIGHT);
+  vec2 rimDir = lightDir(uv, RIM_LIGHT);
   float edgeW = max(0.0, 1.0 - s / RIM_W);
-  float rim = RIM_OPACITY * edgeW * edgeW * abs(dot(n, vec2(cos(ra), sin(ra))));
+  float rim = RIM_OPACITY * edgeW * edgeW * abs(dot(n, rimDir));
   float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
   col = mix(col, max(mix(vec3(lum), col, RIM_SATURATION), 0.0), rim);
   col = mix(col, light, rim * RIM_WHITE);

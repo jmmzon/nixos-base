@@ -54,6 +54,43 @@ uniform float umbriel_glass_count;
 #define RIM_LIGHT -53.0 // [-180..180 deg] rim light direction, degrees (kube.io default: up-right)
 #endif
 
+// == Screen light ==
+// The rim light turns towards the brightest area on the output (Umbriel's
+// umbriel_light, [effects] glass_light: the blurred wallpaper, or the live
+// screen), seen from each point of the edge, so every pane is lit from its own
+// side. Without a clear bright area (strength 0) the fixed angles above hold.
+#ifndef LIGHT_FOLLOW
+#define LIGHT_FOLLOW 1.0 // [0..1] how far the rim light turns towards the brightest area; 0 = fixed angles
+#endif
+#ifndef LIGHT_COLOR
+#define LIGHT_COLOR 0.6 // [0..1] how much the rim light takes that area's colour
+#endif
+#ifndef LIGHT_GAIN
+#define LIGHT_GAIN 0.5 // [0..1] how much the rim brightness follows how strongly that area stands out
+#endif
+
+// Unit direction towards the light at uv: the fixed angle (deg), turned to the screen light.
+vec2 lightDir(vec2 uv, float deg) {
+  vec2 fixedDir = vec2(cos(radians(deg)), sin(radians(deg)));
+  vec2 d = umbriel_light_dir(uv);
+  float k = clamp(LIGHT_FOLLOW * umbriel_light.z, 0.0, 1.0);
+  if (k <= 0.0 || dot(d, d) == 0.0) {
+    return fixedDir;
+  }
+  vec2 m = mix(fixedDir, d, k);
+  return dot(m, m) > 1e-6 ? normalize(m) : d;
+}
+
+// Colour of the light: white, tinted towards the bright area's colour.
+vec3 lightTint() {
+  return mix(vec3(1.0), umbriel_light_color, LIGHT_COLOR * umbriel_light.z * umbriel_light.w);
+}
+
+// Brightness of the light: 0.4x for a faint bright area up to 1.6x for a stark one.
+float lightGain() {
+  return mix(1.0, 0.4 + 1.2 * umbriel_light.z, LIGHT_GAIN * umbriel_light.w);
+}
+
 // Imperfections: the pane is not perfectly flat. A static height field fixed
 // to the surface bends the backdrop by its slope: soft waves (old window
 // glass) plus long streaks (cords in drawn glass). Values per part of the
@@ -320,20 +357,20 @@ vec4 backdrop(vec2 uv) {
   // Small controls: the flaws never shift more than a tenth of the shorter half side.
   vec3 col = glassBody(uv, off, px, s, FADE_IN, 0.1 * min(halfSize.x, halfSize.y));
 
-  float la = radians(LIGHT);
-  float facing = dot(n, vec2(cos(la), sin(la)));
+  float facing = dot(n, lightDir(uv, LIGHT));
   float shade = 0.12 + 0.88 * (facing > 0.0 ? facing : -0.4 * facing);
   float crisp = max(0.0, 1.0 - s / SPECULAR_W);
   float glow = max(0.0, 1.0 - s / (SPECULAR_W * 5.0));
-  col += min(1.0, SPECULAR * (crisp * crisp + 0.3 * glow * glow) * shade);
+  vec3 light = lightTint();
+  col += light * min(1.0, SPECULAR * lightGain() * (crisp * crisp + 0.3 * glow * glow) * shade);
 
-  float ra = radians(RIM_LIGHT);
+  vec2 rimDir = lightDir(uv, RIM_LIGHT);
   float edge = max(0.0, 1.0 - s / RIM_W);
-  float rim = RIM_OPACITY * edge * edge * abs(dot(n, vec2(cos(ra), sin(ra))));
+  float rim = RIM_OPACITY * edge * edge * abs(dot(n, rimDir));
   float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
   vec3 vivid = max(mix(vec3(lum), col, RIM_SATURATION), 0.0);
   col = mix(col, vivid, rim);
-  col = mix(col, vec3(1.0), rim * RIM_WHITE);
+  col = mix(col, light, rim * RIM_WHITE);
 
   return vec4(col * cover, cover);
 }

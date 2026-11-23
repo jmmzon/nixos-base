@@ -27,6 +27,9 @@ let
   # its shader, so one shader serves several presets (branch glass-params).
   # umbriel-backdrop-corners.patch: a window's backdrop glass follows its
   # rounded corners instead of drawing a square under them (2026-11-17).
+  # umbriel-glass-light.patch: backdrop programs see the brightest area of
+  # their output (umbriel_light, [effects] glass_light = off|wallpaper|screen),
+  # so the lens shaders light the rim from it (branch glass-light, SYS-139).
   # Both the system and Home Manager install it.
   patched =
     pkgs:
@@ -40,6 +43,7 @@ let
         ../patches/umbriel-glass-regions.patch
         ../patches/umbriel-effect-params.patch
         ../patches/umbriel-backdrop-corners.patch
+        ../patches/umbriel-glass-light.patch
       ];
     });
   # my.vmwgfxDmabufFix (VMware guests): also rebuild against patched wlroots.

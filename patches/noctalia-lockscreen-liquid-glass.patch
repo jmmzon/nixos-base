@@ -640,23 +640,26 @@ index 000000000..daf8c8587
 +};
 diff --git a/src/shell/render/programs/liquid_glass_program.cpp b/src/shell/render/programs/liquid_glass_program.cpp
 new file mode 100644
-index 000000000..efb8c659f
+index 000000000..72829f7ad
 --- /dev/null
 +++ b/src/shell/render/programs/liquid_glass_program.cpp
-@@ -0,0 +1,600 @@
+@@ -0,0 +1,803 @@
 +#include "shell/render/programs/liquid_glass_program.h"
 +
 +#include "core/log.h"
 +#include "shell/render/glass_params.h"
 +
++#include <GLES3/gl3.h>
 +#include <algorithm>
 +#include <array>
++#include <chrono>
 +#include <cmath>
 +#include <cstdlib>
 +#include <map>
 +#include <regex>
 +#include <stdexcept>
 +#include <string>
++#include <vector>
 +
 +namespace {
 +
@@ -698,6 +701,9 @@ index 000000000..efb8c659f
 +uniform float u_radius;  // logical
 +uniform vec4 u_tint;     // premultiplied
 +uniform float u_opacity;
++uniform vec4 u_light;       // brightest area under the glass: xy framebuffer px / viewport (y-up), z strength, w 1 when set
++uniform vec3 u_light_color; // its colour, brightest channel 1
++uniform vec2 u_viewport;    // framebuffer px
 +varying vec2 v_local;
 +
 +#ifndef REFRACTION
@@ -741,6 +747,20 @@ index 000000000..efb8c659f
 +#endif
 +#ifndef RIM_LIGHT
 +#define RIM_LIGHT -53.0 // [-180..180 deg] rim light direction, degrees (kube.io default: up-right)
++#endif
++
++// == Screen light ==
++// The rim light turns towards the brightest area of the wallpaper behind the
++// lock (as Umbriel's umbriel_light does for the desktop glass), seen from each
++// point of the edge. Without a clear bright area the fixed angles hold.
++#ifndef LIGHT_FOLLOW
++#define LIGHT_FOLLOW 1.0 // [0..1] how far the rim light turns towards the brightest area; 0 = fixed angles
++#endif
++#ifndef LIGHT_COLOR
++#define LIGHT_COLOR 0.6 // [0..1] how much the rim light takes that area's colour
++#endif
++#ifndef LIGHT_GAIN
++#define LIGHT_GAIN 0.5 // [0..1] how much the rim brightness follows how strongly that area stands out
 +#endif
 +
 +// Imperfections (off unless the window glass turns them on): the pane is not perfectly flat. A static height field fixed
@@ -821,6 +841,30 @@ index 000000000..efb8c659f
 +#ifndef PATCH_SIZE
 +#define PATCH_SIZE 140.0 // [20..600 px] uneven frost: size of a patch
 +#endif
++
++// Unit direction (logical px, y-down) towards the light: the fixed angle, turned to the screen light.
++vec2 lightDir(float deg) {
++    vec2 fixedDir = vec2(cos(radians(deg)), sin(radians(deg)));
++    float k = clamp(LIGHT_FOLLOW * u_light.z, 0.0, 1.0);
++    if (k <= 0.0 || u_light.w < 0.5) {
++        return fixedDir;
++    }
++    vec2 fb = u_light.xy * u_viewport - gl_FragCoord.xy;
++    vec2 d = vec2(fb.x, -fb.y) * u_flip / u_scale;
++    if (dot(d, d) < 1e-6) {
++        return fixedDir;
++    }
++    vec2 m = mix(fixedDir, normalize(d), k);
++    return dot(m, m) > 1e-6 ? normalize(m) : normalize(d);
++}
++
++vec3 lightTint() {
++    return mix(vec3(1.0), u_light_color, LIGHT_COLOR * u_light.z * u_light.w);
++}
++
++float lightGain() {
++    return mix(1.0, 0.4 + 1.2 * u_light.z, LIGHT_GAIN * u_light.w);
++}
 +
 +// Texture coordinate of the fragment moved by o logical px (y-down).
 +vec2 at(vec2 o) {
@@ -969,19 +1013,19 @@ index 000000000..efb8c659f
 +    vec3 col = glassBody(off, v_local, s, 0.1 * min(halfSize.x, halfSize.y));
 +    col = col * (1.0 - u_tint.a) + u_tint.rgb;
 +
-+    float la = radians(LIGHT);
-+    float facing = dot(n, vec2(cos(la), sin(la)));
++    float facing = dot(n, lightDir(LIGHT));
 +    float shade = 0.12 + 0.88 * (facing > 0.0 ? facing : -0.4 * facing);
 +    float crisp = max(0.0, 1.0 - s / SPECULAR_W);
 +    float glow = max(0.0, 1.0 - s / (SPECULAR_W * 5.0));
-+    col += min(1.0, SPECULAR * (crisp * crisp + 0.3 * glow * glow) * shade);
++    vec3 light = lightTint();
++    col += light * min(1.0, SPECULAR * lightGain() * (crisp * crisp + 0.3 * glow * glow) * shade);
 +
-+    float ra = radians(RIM_LIGHT);
++    vec2 rimDir = lightDir(RIM_LIGHT);
 +    float edgeW = max(0.0, 1.0 - s / RIM_W);
-+    float rim = RIM_OPACITY * edgeW * edgeW * abs(dot(n, vec2(cos(ra), sin(ra))));
++    float rim = RIM_OPACITY * edgeW * edgeW * abs(dot(n, rimDir));
 +    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
 +    col = mix(col, max(mix(vec3(lum), col, RIM_SATURATION), 0.0), rim);
-+    col = mix(col, vec3(1.0), rim * RIM_WHITE);
++    col = mix(col, light, rim * RIM_WHITE);
 +
 +    float alpha = coverage * u_opacity;
 +    gl_FragColor = vec4(col * alpha, alpha);
@@ -1071,6 +1115,10 @@ index 000000000..efb8c659f
 +  m_radiusLocation = glGetUniformLocation(id, "u_radius");
 +  m_tintLocation = glGetUniformLocation(id, "u_tint");
 +  m_opacityLocation = glGetUniformLocation(id, "u_opacity");
++  // The light uniforms may be dropped when the knobs turn it off (-1: setting is a no-op).
++  m_lightLocation = glGetUniformLocation(id, "u_light");
++  m_lightColorLocation = glGetUniformLocation(id, "u_light_color");
++  m_viewportLocation = glGetUniformLocation(id, "u_viewport");
 +
 +  if (m_positionLocation < 0
 +      || m_surfaceSizeLocation < 0
@@ -1089,11 +1137,13 @@ index 000000000..efb8c659f
 +
 +void LiquidGlassProgram::destroy() {
 +  m_program.destroy();
++  releaseLight();
 +  m_buffers = {};
 +}
 +
 +void LiquidGlassProgram::abandon() noexcept {
 +  m_program.abandon();
++  m_lights = {}; // the context is gone: forget its names, delete nothing
 +  for (auto& set : m_buffers) {
 +    for (auto* fb : {&set.raw, &set.scratch, &set.frost}) {
 +      if (*fb) {
@@ -1136,6 +1186,153 @@ index 000000000..efb8c659f
 +  return &set;
 +}
 +
++// The brightest area of what is drawn so far (the wallpaper under the lock):
++// the framebuffer halved by linear blits (each an exact 2x2 average) to about
++// 1/64 of its size, read back, and reduced to the weighted centre of its
++// brightest texels. At most once a second per framebuffer, so a live
++// wallpaper moves the light without a read every frame; the read waits for
++// the GPU, which a lock screen can afford.
++void LiquidGlassProgram::releaseLight() {
++  for (Light& light : m_lights) {
++    for (std::size_t i = 0; i < light.levels.size(); ++i) {
++      if (light.levels[i].framebuffer != 0) {
++        glDeleteFramebuffers(1, &light.levels[i].framebuffer);
++      }
++      if (light.levels[i].texture != 0) {
++        glDeleteTextures(1, &light.levels[i].texture);
++      }
++    }
++    light = {};
++  }
++}
++
++const LiquidGlassProgram::Light& LiquidGlassProgram::updateLight(GLint framebuffer, int width, int height) {
++  const auto now = std::chrono::steady_clock::now();
++  Light* slot = nullptr;
++  for (Light& light : m_lights) {
++    if (light.framebuffer == framebuffer && light.width == width && light.height == height) {
++      slot = &light;
++      break;
++    }
++  }
++  if (slot != nullptr && slot->valid && now - slot->at < std::chrono::seconds(1)) {
++    return *slot;
++  }
++  if (slot == nullptr) {
++    slot = &m_lights[0];
++    for (Light& light : m_lights) {
++      if (light.at < slot->at) {
++        slot = &light;
++      }
++    }
++    for (auto& level : slot->levels) {
++      if (level.framebuffer != 0) {
++        glDeleteFramebuffers(1, &level.framebuffer);
++      }
++      if (level.texture != 0) {
++        glDeleteTextures(1, &level.texture);
++      }
++    }
++    *slot = {};
++    slot->framebuffer = framebuffer;
++    slot->width = width;
++    slot->height = height;
++  }
++  Light& light = *slot;
++  light.at = now;
++  if (width <= 0 || height <= 0) {
++    return light;
++  }
++
++  // Halving levels down to at most 64 px wide, allocated once per size.
++  int w = width, h = height, count = 0;
++  while (count < static_cast<int>(light.levels.size()) && (w > 64 || count == 0)) {
++    w = std::max(1, (w + 1) / 2);
++    h = std::max(1, (h + 1) / 2);
++    auto& level = light.levels[static_cast<std::size_t>(count)];
++    if (level.texture == 0) {
++      glGenTextures(1, &level.texture);
++      glBindTexture(GL_TEXTURE_2D, level.texture);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
++      glGenFramebuffers(1, &level.framebuffer);
++      glBindFramebuffer(GL_FRAMEBUFFER, level.framebuffer);
++      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, level.texture, 0);
++      glBindTexture(GL_TEXTURE_2D, 0);
++    }
++    level.width = w;
++    level.height = h;
++    ++count;
++  }
++  const bool scissor = glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
++  glDisable(GL_SCISSOR_TEST);
++  GLuint source = static_cast<GLuint>(framebuffer);
++  int sw = width, sh = height;
++  for (int i = 0; i < count; ++i) {
++    const auto& level = light.levels[static_cast<std::size_t>(i)];
++    glBindFramebuffer(GL_READ_FRAMEBUFFER, source);
++    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, level.framebuffer);
++    glBlitFramebuffer(0, 0, sw, sh, 0, 0, level.width, level.height, GL_COLOR_BUFFER_BIT, GL_LINEAR);
++    source = level.framebuffer;
++    sw = level.width;
++    sh = level.height;
++  }
++  std::vector<std::uint8_t> pixels(static_cast<std::size_t>(sw) * static_cast<std::size_t>(sh) * 4);
++  glBindFramebuffer(GL_FRAMEBUFFER, source);
++  glPixelStorei(GL_PACK_ALIGNMENT, 1);
++  glReadPixels(0, 0, sw, sh, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
++  if (scissor) {
++    glEnable(GL_SCISSOR_TEST);
++  }
++
++  // Tone, mean and peak; the weights count only the top half between them.
++  const int n = sw * sh;
++  std::vector<float> tone(static_cast<std::size_t>(n));
++  double mean = 0.0;
++  float peak = 0.0F;
++  for (int i = 0; i < n; ++i) {
++    const float r = pixels[i * 4] / 255.0F, g = pixels[i * 4 + 1] / 255.0F, b = pixels[i * 4 + 2] / 255.0F;
++    const float l = 0.2126F * r + 0.7152F * g + 0.0722F * b;
++    tone[static_cast<std::size_t>(i)] = l / (1.0F + l);
++    mean += tone[static_cast<std::size_t>(i)];
++    peak = std::max(peak, tone[static_cast<std::size_t>(i)]);
++  }
++  mean /= std::max(n, 1);
++  const float floorTone = static_cast<float>(mean) + 0.5F * (peak - static_cast<float>(mean));
++  double sum = 0.0, sx = 0.0, sy = 0.0, sr = 0.0, sg = 0.0, sb = 0.0;
++  for (int y = 0; y < sh; ++y) {
++    for (int x = 0; x < sw; ++x) {
++      const int i = y * sw + x;
++      const float d = tone[static_cast<std::size_t>(i)] - floorTone;
++      if (d <= 0.0F) {
++        continue;
++      }
++      const double wgt = static_cast<double>(d) * d * tone[static_cast<std::size_t>(i)];
++      sum += wgt;
++      sx += wgt * ((x + 0.5) / sw);
++      sy += wgt * ((y + 0.5) / sh);
++      sr += wgt * pixels[i * 4] / 255.0;
++      sg += wgt * pixels[i * 4 + 1] / 255.0;
++      sb += wgt * pixels[i * 4 + 2] / 255.0;
++    }
++  }
++  std::array<float, 6> target{0.5F, 0.5F, 0.0F, 1.0F, 1.0F, 1.0F};
++  if (sum > 1e-9) {
++    const auto r = static_cast<float>(sr / sum), g = static_cast<float>(sg / sum), b = static_cast<float>(sb / sum);
++    const float m = std::max({r, g, b, 1e-4F});
++    target = {static_cast<float>(sx / sum), static_cast<float>(sy / sum),
++              std::clamp((peak - static_cast<float>(mean)) * 2.5F, 0.0F, 1.0F), r / m, g / m, b / m};
++  }
++  // A live wallpaper: ease half-way each second instead of jumping.
++  const float k = light.valid ? 0.5F : 1.0F;
++  for (std::size_t i = 0; i < target.size(); ++i) {
++    light.current[i] += (target[i] - light.current[i]) * k;
++  }
++  light.valid = true;
++  return light;
++}
++
 +void LiquidGlassProgram::draw(RenderBackend& backend, const Params& params) {
 +  if (!m_program.isValid() || params.width <= 0.0F || params.height <= 0.0F || params.opacity <= 0.0F) {
 +    return;
@@ -1151,6 +1348,9 @@ index 000000000..efb8c659f
 +  glGetIntegerv(GL_SCISSOR_BOX, scissorBox.data());
 +  const auto viewportW = static_cast<float>(viewport[2]);
 +  const auto viewportH = static_cast<float>(viewport[3]);
++  const Light& light = updateLight(prevFramebuffer, viewport[2], viewport[3]);
++  glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
++  glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 +
 +  // The rectangle in framebuffer px (y-up), padded so the frost and the fold read real pixels.
 +  // Axis-aligned transforms only (translation, possibly mirrored); the caller skips rotations.
@@ -1226,6 +1426,9 @@ index 000000000..efb8c659f
 +  glUniform1f(m_radiusLocation, params.radius);
 +  glUniform4f(m_tintLocation, params.tint.r, params.tint.g, params.tint.b, params.tint.a);
 +  glUniform1f(m_opacityLocation, params.opacity);
++  glUniform4f(m_lightLocation, light.current[0], light.current[1], light.current[2], light.valid ? 1.0F : 0.0F);
++  glUniform3f(m_lightColorLocation, light.current[3], light.current[4], light.current[5]);
++  glUniform2f(m_viewportLocation, viewportW, viewportH);
 +
 +  glActiveTexture(GL_TEXTURE1);
 +  glBindTexture(GL_TEXTURE_2D, buffers->frost->colorTexture().value());
@@ -1246,10 +1449,10 @@ index 000000000..efb8c659f
 +}
 diff --git a/src/shell/render/programs/liquid_glass_program.h b/src/shell/render/programs/liquid_glass_program.h
 new file mode 100644
-index 000000000..8dcc2e534
+index 000000000..5b6461ff0
 --- /dev/null
 +++ b/src/shell/render/programs/liquid_glass_program.h
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,104 @@
 +#pragma once
 +
 +#include "render/backend/render_backend.h"
@@ -1259,6 +1462,7 @@ index 000000000..8dcc2e534
 +
 +#include <GLES2/gl2.h>
 +#include <array>
++#include <chrono>
 +#include <cstdint>
 +#include <memory>
 +
@@ -1301,6 +1505,26 @@ index 000000000..8dcc2e534
 +    std::uint64_t lastUse = 0;
 +  };
 +
++  // Brightest area of what is drawn under the glass, per framebuffer (updateLight).
++  struct Light {
++    struct Level {
++      GLuint texture = 0;
++      GLuint framebuffer = 0;
++      int width = 0;
++      int height = 0;
++    };
++    std::array<Level, 8> levels{};
++    GLint framebuffer = -1;
++    int width = 0;
++    int height = 0;
++    std::chrono::steady_clock::time_point at{};
++    bool valid = false;
++    // x, y (framebuffer, y-up, 0..1), strength, r, g, b
++    std::array<float, 6> current{0.5F, 0.5F, 0.0F, 1.0F, 1.0F, 1.0F};
++  };
++  const Light& updateLight(GLint framebuffer, int width, int height);
++  void releaseLight();
++
 +  // A few panels of different sizes can share the program without reallocating every frame.
 +  Buffers* ensureBuffers(RenderBackend& backend, std::uint32_t width, std::uint32_t height);
 +
@@ -1317,6 +1541,10 @@ index 000000000..8dcc2e534
 +  GLint m_radiusLocation = -1;
 +  GLint m_tintLocation = -1;
 +  GLint m_opacityLocation = -1;
++  GLint m_lightLocation = -1;
++  GLint m_lightColorLocation = -1;
++  GLint m_viewportLocation = -1;
++  std::array<Light, 4> m_lights;
 +
 +  // glass_params generation the program was built with, and the flaw reach it implies.
 +  std::uint64_t m_builtGeneration = 0;
