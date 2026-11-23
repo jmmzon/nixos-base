@@ -129,6 +129,25 @@
       };
 
       programs.fish.enable = true;
+      # NixOS sources the system environment into fish through fenv, which
+      # copies every variable bash knows. Names fish rejects (the Claude app
+      # exports SENTRY-TRACE) made each new shell print a `set` error; skip them.
+      nixpkgs.overlays = [
+        (_: prev: {
+          fishPlugins = prev.fishPlugins.overrideScope (
+            _: fprev: {
+              foreign-env = fprev.foreign-env.overrideAttrs (old: {
+                postInstall = (old.postInstall or "") + ''
+                  substituteInPlace $out/share/fish/vendor_functions.d/fenv.main.fish \
+                    --replace-fail 'contains $kv[1] _ SHLVL PWD; and continue' \
+                      'contains $kv[1] _ SHLVL PWD; and continue
+                    string match -qr -- "^[A-Za-z_][A-Za-z0-9_]*\$" $kv[1]; or continue'
+                '';
+              });
+            }
+          );
+        })
+      ];
       # Steam is x86 only.
       programs.steam.enable = pkgs.stdenv.hostPlatform.isx86_64;
       programs.nix-ld.enable = true;

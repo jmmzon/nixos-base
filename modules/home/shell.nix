@@ -206,8 +206,12 @@
             pkgs.replaceVars ../../home/fish/shell_welcome.fish
               { figlet = pkgs.figlet; };
           xdg.configFile."fastfetch/shell.jsonc".source = ../../home/fastfetch/shell.jsonc;
+          # No banner in the Claude desktop app's Terminal panel: agents type a
+          # command into a fresh shell there, and the banner only buries its output.
           programs.fish.functions.fish_greeting.body =
-            "printf '\\n'; shell_welcome; printf '\\n'" + lib.optionalString shellTasks.enable "; shell_tasks";
+            "test \"$TERM_PROGRAM\" = claude-desktop; and return; "
+            + "printf '\\n'; shell_welcome; printf '\\n'"
+            + lib.optionalString shellTasks.enable "; shell_tasks";
           home.activation.starshipNoctaliaConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
             base="$HOME/.config/noctalia/starship-base.toml"
             palette="$HOME/.cache/noctalia/starship-palette.toml"
