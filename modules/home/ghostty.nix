@@ -16,6 +16,7 @@
         else
           pkgs.replaceVars ../../home/ghostty/config.ghostty {
             appOpacity = (import ./_opacity.nix lib).dark.value;
+            fontFamily = (pkgs.callPackage ../../packages/xenon-code { }).family;
             opacityFile = "${config.xdg.stateHome}/erebor-theme-opacity/ghostty";
           };
     };

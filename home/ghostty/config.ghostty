@@ -1,4 +1,6 @@
 theme = noctalia
+# packages/xenon-code: texture healing and ligatures are on in the font itself.
+font-family = @fontFamily@
 # Dark-mode default; the file below (written by erebor-theme-opacity on each
 # Noctalia theme mode change, modules/home/theme-opacity.nix) overrides it.
 background-opacity = @appOpacity@

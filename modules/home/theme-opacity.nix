@@ -65,7 +65,15 @@
         in
         pkgs.linkFarm "theme-opacity-${mode}${lib.optionalString reduced "-reduced"}" {
           ghostty = pkgs.writeText "ghostty-opacity-${mode}" "background-opacity = ${o.value}\n";
-          monstar = pkgs.replaceVars ../../home/monstar/config { appOpacity = o.value; };
+          monstar = pkgs.replaceVars ../../home/monstar/config {
+            appOpacity = o.value;
+            fontFamily = (pkgs.callPackage ../../packages/xenon-code { }).family;
+            # Stroke weight closest to Ghostty's (no thickening), measured as
+            # total text ink in headless screenshots: light text on dark gains
+            # +23% with Monstar's default thickening and -5% without it; dark
+            # text on light gains +3% at the lightest strength, -10% without.
+            fontThicken = if mode == "dark" then "font-thicken = false" else "font-thicken-strength = 0";
+          };
           "vicinae.json" = pkgs.writeText "vicinae-opacity-${mode}.json" (
             builtins.toJSON { launcher_window.opacity = builtins.fromJSON o.value; }
           );
@@ -120,7 +128,8 @@
           # remembered per mode and derive this mode's (and reduce
           # transparency's) from the config again. Darkly is left alone.
           # --ghostty: only rewrite Ghostty's include for the current mode and
-          # reload Ghostty (the ghostty-bg template's post_hook, after a palette change).
+          # reload Ghostty and Monstar (the ghostty-bg template's post_hook,
+          # after a palette change).
           ghostty_only=false
           if [ "''${1:-}" = --ghostty ]; then
             ghostty_only=true
@@ -194,6 +203,9 @@
             if ghostty_write; then
               pkill -USR2 -x 'ghostty|\.ghostty-wrappe' || true
             fi
+            # Monstar reads Ghostty's Noctalia theme (linked in apps.nix), which
+            # Noctalia's built-in templates rewrote before this user template's hook.
+            pkill -USR1 -x monstar || true
             exit 0
           fi
 

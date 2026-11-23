@@ -129,6 +129,8 @@
       };
     in
     {
+      # The terminals' and Zed's font (Ghostty, Monstar, Zed read its family name).
+      fonts.packages = [ (pkgs.callPackage ../../packages/xenon-code { }) ];
       # kio-admin's privileged helper is a D-Bus system service.
       services.dbus.packages = [ pkgs.kdePackages.kio-admin ];
 

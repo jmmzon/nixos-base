@@ -1,4 +1,4 @@
-# Linux application configs: the Zed keymap, Monstar, the Noctalia Zed template (both share
+# Linux application configs: the Zed keymap and font, Monstar, the Noctalia Zed template (both share
 # the app opacity with Ghostty, see _opacity.nix) and Vencord. Neovim and
 # Ghostty are their own aspects (nvim.nix, ghostty.nix).
 {
@@ -12,6 +12,7 @@
     }:
     let
       themeState = "${config.xdg.stateHome}/erebor-theme-opacity";
+      fontFamily = (pkgs.callPackage ../../packages/xenon-code { }).family;
       liveFile = import ../_live-file.nix { inherit config osConfig; };
     in
     {
@@ -23,6 +24,21 @@
       # points at the variant erebor-theme-opacity picked (theme-opacity.nix).
       xdg.configFile."monstar/config".source =
         config.lib.file.mkOutOfStoreSymlink "${config.xdg.stateHome}/erebor-theme-opacity/monstar";
+      # Monstar's `theme = noctalia` is Ghostty's Noctalia theme (same format),
+      # which Noctalia rewrites on every palette change.
+      xdg.configFile."monstar/themes/noctalia".source =
+        config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/ghostty/themes/noctalia";
+      # Zed: the terminals' font in the editor and its terminal. Home Manager
+      # merges these keys into settings.json on activation and leaves the rest
+      # of the file to Zed (it is rewritten as plain JSON, without comments).
+      programs.zed-editor = {
+        enable = true;
+        package = null; # installed system-wide (workstation/packages.nix)
+        userSettings = {
+          buffer_font_family = fontFamily;
+          terminal.font_family = fontFamily;
+        };
+      };
       # Noctalia's Zed and Strata templates carry the app opacity; the links point
       # at the variant erebor-theme-opacity picked (theme-opacity.nix: per mode,
       # raised while Reduce transparency is on).

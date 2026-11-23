@@ -3,6 +3,13 @@
 # background-opacity is substituted from home/appearance.nix, the same source
 # Ghostty's background-opacity uses, so both terminals stay in step.
 background-opacity = @appOpacity@
+# Ghostty's look: the same font (packages/xenon-code, ligatures baked in, as
+# Monstar has no font-feature setting) and Noctalia's Ghostty theme, linked
+# into ~/.config/monstar/themes (apps.nix) and reloaded on palette changes.
+font-family = @fontFamily@
+# Per theme mode, to match Ghostty's stroke weight (theme-opacity.nix).
+@fontThicken@
+theme = noctalia
 # Keep text off the refracting lip of Umbriel's liquid-glass effect.
 window-padding-x = 14
 window-padding-y = 9
