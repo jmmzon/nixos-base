@@ -34,7 +34,7 @@
       # while the glass item is applied. "off" drops the backdrop glass of every
       # layer and window and the terminals' rim; plain blur stays.
       glassOff = ''
-        # Written by erebor-modes while the power-saver mode is on; removed after.
+        # Written by erebor-modes while power-saver or game mode is on; removed after.
         [[layer_rule]]
         match.namespace = ".*"
         backdrop_effect = "off"
@@ -44,17 +44,20 @@
         border_effect = "off"
       '';
 
+      glassItem = {
+        id = "glass";
+        label = "Liquid glass off";
+        glyph = "droplet-off";
+        handler = "file";
+        params = {
+          path = "${stateDir}/umbriel.toml";
+          content = glassOff;
+        };
+      };
+      gameMode = my.liquidGlass.enable;
+
       powerSaverItems =
-        lib.optional my.liquidGlass.enable {
-          id = "glass";
-          label = "Liquid glass off";
-          glyph = "droplet-off";
-          handler = "file";
-          params = {
-            path = "${stateDir}/umbriel.toml";
-            content = glassOff;
-          };
-        }
+        lib.optional my.liquidGlass.enable glassItem
         ++ lib.optional my.shaderWallpaper.enable {
           id = "wallpaper-shader";
           label = "Shader wallpaper paused";
@@ -213,7 +216,19 @@
               };
               items = [ transparency ];
             }
-          ];
+          ]
+          # Game mode: while a Steam game runs or a window is fullscreen, the
+          # liquid glass is off (GPU time for the game); `erebor-modes watch` polls.
+          ++ lib.optional gameMode {
+            id = "game";
+            label = "Game mode";
+            kind = "auto";
+            notify = false;
+            icon = "input-gaming";
+            glyph = "device-gamepad-2";
+            "when".game = true;
+            items = [ glassItem ];
+          };
         }
       );
 
@@ -252,6 +267,21 @@
         hook
         started
       ];
+
+      systemd.user.services.erebor-modes-watch = lib.mkIf gameMode {
+        Unit = {
+          Description = "erebor-modes: game mode follows running games";
+          PartOf = [ "graphical-session.target" ];
+          After = [ "graphical-session.target" ];
+        };
+        Service = {
+          ExecStart = "${erebor-modes}/bin/erebor-modes watch";
+          Restart = "on-failure";
+          RestartSec = 5;
+          Nice = 10;
+        };
+        Install.WantedBy = [ "graphical-session.target" ];
+      };
     };
 
   flake.modules.nixos.erebor-modes =
