@@ -1,13 +1,14 @@
 diff --git a/src/config/effects.h b/src/config/effects.h
-index ba0170da..5186874c 100644
+index ba0170da..2c4c9a94 100644
 --- a/src/config/effects.h
 +++ b/src/config/effects.h
-@@ -111,6 +111,11 @@ namespace umbriel {
+@@ -111,6 +111,12 @@ namespace umbriel {
      int maxFps = 0; // 0-240, 0 follows the refresh rate
      bool inCapture = false;
      bool borderUnfocused = false;
 +    // Light on liquid glass (umbriel_light): "off", "wallpaper" (the blurred
-+    // wallpaper's brightest area) or "screen" (the composited output's).
++    // wallpaper's brightest area), "screen" (the composited output's) or "auto"
++    // (the wallpaper, and the screen while a fullscreen window covers the output).
 +    std::string glassLight = "wallpaper";
 +    double glassLightRate = 15.0;     // screen samples per second, 1-60
 +    double glassLightSmoothing = 0.4; // seconds per e-fold of the easing, 0-5
@@ -15,10 +16,10 @@ index ba0170da..5186874c 100644
    };
  
 diff --git a/src/config/fields_effects.cpp b/src/config/fields_effects.cpp
-index c2d3f9d0..3e68bb0a 100644
+index c2d3f9d0..3884e8ee 100644
 --- a/src/config/fields_effects.cpp
 +++ b/src/config/fields_effects.cpp
-@@ -246,6 +246,16 @@ namespace umbriel {
+@@ -246,6 +246,17 @@ namespace umbriel {
            registry::integer("max_fps", 0, 240, &Effects::maxFps),
            registry::boolean("in_capture", &Effects::inCapture),
            registry::boolean("border_unfocused", &Effects::borderUnfocused),
@@ -28,6 +29,7 @@ index c2d3f9d0..3e68bb0a 100644
 +                  {.name = "off", .value = "off"},
 +                  {.name = "wallpaper", .value = "wallpaper"},
 +                  {.name = "screen", .value = "screen"},
++                  {.name = "auto", .value = "auto"},
 +              }
 +          ),
 +          registry::real("glass_light_rate", 1.0, 60.0, &Effects::glassLightRate),
@@ -36,23 +38,24 @@ index c2d3f9d0..3e68bb0a 100644
            effectField("window", &Effects::window, EffectKind::Window),
            effectField("screen", &Effects::screen, EffectKind::Screen),
 diff --git a/src/output/output.cpp b/src/output/output.cpp
-index 3fc6e73e..6b1cbbc5 100644
+index 3fc6e73e..9f523101 100644
 --- a/src/output/output.cpp
 +++ b/src/output/output.cpp
-@@ -2199,6 +2199,8 @@ namespace umbriel {
+@@ -2199,6 +2199,9 @@ namespace umbriel {
      // since the last commit is diffed here exactly once; the umbrielfx scene's
      // own needs_frame listener is what scheduled this frame for them.
      paceCursorPlaneTransition();
 +    // Collect the glass light's read and ease it; damages the glass reading it.
++    wlr_scene_output_set_glass_light_live(m_sceneOutput, fullscreenCoversOutput());
 +    wlr_scene_output_glass_light_tick(m_sceneOutput);
      const bool sceneChanged = wlr_scene_output_needs_frame(m_sceneOutput);
      if (sceneChanged) {
        // Scene motion under a stationary cursor must reach the client before its next press.
 diff --git a/src/server/effects.cpp b/src/server/effects.cpp
-index d1729b17..47ca0ae4 100644
+index d1729b17..8effc938 100644
 --- a/src/server/effects.cpp
 +++ b/src/server/effects.cpp
-@@ -104,6 +104,19 @@ namespace umbriel {
+@@ -104,6 +104,21 @@ namespace umbriel {
      resolveEffectSlot(slot, EffectKind::Screen);
    }
  
@@ -63,6 +66,8 @@ index d1729b17..47ca0ae4 100644
 +      mode = WLR_SCENE_GLASS_LIGHT_OFF;
 +    } else if (effects.glassLight == "screen") {
 +      mode = WLR_SCENE_GLASS_LIGHT_SCREEN;
++    } else if (effects.glassLight == "auto") {
++      mode = WLR_SCENE_GLASS_LIGHT_AUTO;
 +    }
 +    wlr_scene_set_glass_light(
 +        m_scene, mode, static_cast<float>(effects.glassLightRate), static_cast<float>(effects.glassLightSmoothing)
@@ -110,10 +115,10 @@ index 9ec1a454..2bbf0401 100644
      if (effects.animation || effects.effects) {
        effectRegistry().prepare(m_renderer);
 diff --git a/umbrielfx/include/umbrielfx/render/fx_renderer/fx_offscreen_buffers.h b/umbrielfx/include/umbrielfx/render/fx_renderer/fx_offscreen_buffers.h
-index 75bfa0e2..b753f393 100644
+index 75bfa0e2..36e09647 100644
 --- a/umbrielfx/include/umbrielfx/render/fx_renderer/fx_offscreen_buffers.h
 +++ b/umbrielfx/include/umbrielfx/render/fx_renderer/fx_offscreen_buffers.h
-@@ -24,6 +24,29 @@ struct fx_target_buffers {
+@@ -24,6 +24,35 @@ struct fx_target_buffers {
    struct fx_framebuffer* backdrop_shape;
  };
  
@@ -138,12 +143,18 @@ index 75bfa0e2..b753f393 100644
 +  float target[6];
 +  float current[6];
 +  bool valid; // current holds a light the shaders see
++  // Auto mode: a fullscreen window covers the output, so the screen is the source
++  bool live;
++  // Source used last frame (enum wlr_scene_glass_light_mode, never AUTO)
++  int source;
++  // Read the optimized blur at the end of the next frame (source went back to the wallpaper)
++  bool want_wallpaper;
 +};
 +
  /**
   * Per-output renderer framebuffers. Each buffer is allocated on first use and
   * kept until it is no longer needed or the output goes away.
-@@ -39,6 +62,8 @@ struct fx_offscreen_buffers {
+@@ -39,6 +68,8 @@ struct fx_offscreen_buffers {
    unsigned audio_texture;
    uint8_t audio_bands[FX_AUDIO_BANDS];
  
@@ -152,7 +163,7 @@ index 75bfa0e2..b753f393 100644
    // Linear-light composition target shared by the output swapchain
    struct fx_framebuffer* blend_buffer;
    bool blend_valid;
-@@ -73,5 +98,7 @@ void fx_offscreen_buffers_clear_group(struct fx_offscreen_buffers* fbos);
+@@ -73,5 +104,7 @@ void fx_offscreen_buffers_clear_group(struct fx_offscreen_buffers* fbos);
  struct fx_offscreen_buffers* fx_offscreen_buffers_try_get(struct wlr_output* output);
  void fx_offscreen_buffers_invalidate_blend(struct wlr_output* output);
  void fx_renderer_clear_animation_buffers(struct wlr_output* output);
@@ -190,10 +201,10 @@ index e56638b9..b5f4b7f9 100644
   * Render from one buffer to another. False when the source cannot be sampled.
   */
 diff --git a/umbrielfx/include/umbrielfx/types/wlr_scene.h b/umbrielfx/include/umbrielfx/types/wlr_scene.h
-index 6eb44545..293f287d 100644
+index 6eb44545..d12358c3 100644
 --- a/umbrielfx/include/umbrielfx/types/wlr_scene.h
 +++ b/umbrielfx/include/umbrielfx/types/wlr_scene.h
-@@ -140,6 +140,15 @@ struct wlr_scene_tree {
+@@ -140,6 +140,18 @@ struct wlr_scene_tree {
    struct wl_list children; // wlr_scene_node.link
  };
  
@@ -204,12 +215,15 @@ index 6eb44545..293f287d 100644
 +  WLR_SCENE_GLASS_LIGHT_WALLPAPER,
 +  // The composited output, at most `rate` times a second while it changes
 +  WLR_SCENE_GLASS_LIGHT_SCREEN,
++  // The wallpaper, and the screen while a fullscreen window covers the output
++  // (wlr_scene_output_set_glass_light_live)
++  WLR_SCENE_GLASS_LIGHT_AUTO,
 +};
 +
  /** The root scene-graph node. */
  struct wlr_scene {
    struct wlr_scene_tree tree;
-@@ -166,6 +175,11 @@ struct wlr_scene {
+@@ -166,6 +178,11 @@ struct wlr_scene {
  
      struct blur_data blur_data;
  
@@ -221,7 +235,7 @@ index 6eb44545..293f287d 100644
      // Painted where no node covers the output. A rect matching it exactly
      // is dropped from the render list instead of drawn.
      float background_color[4];
-@@ -1367,4 +1381,18 @@ void wlr_scene_layer_surface_v1_configure(
+@@ -1367,4 +1384,20 @@ void wlr_scene_layer_surface_v1_configure(
   */
  struct wlr_scene_tree* wlr_scene_drag_icon_create(struct wlr_scene_tree* parent, struct wlr_drag_icon* drag_icon);
  
@@ -238,6 +252,8 @@ index 6eb44545..293f287d 100644
 + * before wlr_scene_output_needs_frame.
 + */
 +void wlr_scene_output_glass_light_tick(struct wlr_scene_output* scene_output);
++/** Auto mode: whether a fullscreen window covers this output (screen as the source). */
++void wlr_scene_output_set_glass_light_live(struct wlr_scene_output* scene_output, bool live);
 +
  #endif
 diff --git a/umbrielfx/internal/render/fx_renderer/effect.h b/umbrielfx/internal/render/fx_renderer/effect.h
@@ -330,10 +346,10 @@ index 33a26925..ca3daef7 100644
    shader->progress = glGetUniformLocation(shader->program, "umbriel_progress");
 diff --git a/umbrielfx/render/fx_renderer/fx_glass_light.c b/umbrielfx/render/fx_renderer/fx_glass_light.c
 new file mode 100644
-index 00000000..450bef1f
+index 00000000..5ff152ca
 --- /dev/null
 +++ b/umbrielfx/render/fx_renderer/fx_glass_light.c
-@@ -0,0 +1,382 @@
+@@ -0,0 +1,393 @@
 +// Light for liquid glass: where the brightest area of an output is, so the
 +// glass rim can be lit from it (wlr_scene_set_glass_light).
 +//
@@ -658,7 +674,18 @@ index 00000000..450bef1f
 +      glBindBuffer(GL_PIXEL_PACK_BUFFER, light->pbo);
 +      const void* pixels = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)bytes, GL_MAP_READ_BIT);
 +      if (pixels != NULL) {
-+        find_light(light, pixels, light->target);
++        float found[6];
++        find_light(light, pixels, found);
++        // Deadband: small changes (a cursor, subtitles, a blinking caret) keep
++        // the old target, so they cause no glass redraws.
++        bool moved = !light->has_target;
++        for (int i = 0; i < 6 && !moved; i++) {
++          const float limit = i < 2 ? 0.03F : 0.05F;
++          moved = fabsf(found[i] - light->target[i]) > limit;
++        }
++        if (moved) {
++          memcpy(light->target, found, sizeof(found));
++        }
 +        light->has_target = true;
 +        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 +      }
@@ -791,10 +818,10 @@ index 00000000..4331c158
 +  gl_FragColor = sum / 16.0;
 +}
 diff --git a/umbrielfx/types/scene/wlr_scene.c b/umbrielfx/types/scene/wlr_scene.c
-index b539b7a5..d7502dba 100644
+index b539b7a5..d3bc7bec 100644
 --- a/umbrielfx/types/scene/wlr_scene.c
 +++ b/umbrielfx/types/scene/wlr_scene.c
-@@ -1485,6 +1485,92 @@ static void scene_effects_light_layer_destroy(struct wl_listener* listener, void
+@@ -1485,6 +1485,120 @@ static void scene_effects_light_layer_destroy(struct wl_listener* listener, void
    }
  }
  
@@ -827,6 +854,34 @@ index b539b7a5..d7502dba 100644
 +    }
 +    // The wallpaper source needs one more optimized-blur render.
 +    scene_output_damage_whole(scene_output);
++  }
++}
++
++static void damage_glass_light_nodes(struct wlr_scene_output* scene_output, struct wlr_scene_node* node);
++
++// The source this output's light reads now: AUTO resolved per output.
++static enum wlr_scene_glass_light_mode glass_light_source(
++    const struct wlr_scene* scene, const struct fx_offscreen_buffers* fbos
++) {
++  if (scene->glass_light_mode != WLR_SCENE_GLASS_LIGHT_AUTO) {
++    return scene->glass_light_mode;
++  }
++  return fbos != NULL && fbos->glass_light.live ? WLR_SCENE_GLASS_LIGHT_SCREEN : WLR_SCENE_GLASS_LIGHT_WALLPAPER;
++}
++
++void wlr_scene_output_set_glass_light_live(struct wlr_scene_output* scene_output, bool live) {
++  struct fx_offscreen_buffers* fbos = fx_offscreen_buffers_try_get(scene_output->output);
++  if (fbos == NULL || fbos->glass_light.live == live) {
++    return;
++  }
++  fbos->glass_light.live = live;
++  if (scene_output->scene->glass_light_mode == WLR_SCENE_GLASS_LIGHT_AUTO) {
++    // The other source takes over at the next frame; the wallpaper is read from
++    // the optimized blur as it is, without re-rendering it.
++    fbos->glass_light.want_wallpaper = !live;
++    fbos->glass_light.sampled_ms = 0;
++    // A frame must render for either source to be read: redraw the glass.
++    damage_glass_light_nodes(scene_output, &scene_output->scene->tree.node);
 +  }
 +}
 +
@@ -887,11 +942,12 @@ index b539b7a5..d7502dba 100644
  void wlr_scene_set_effect_light_layer(struct wlr_scene* scene, struct wlr_scene_tree* layer) {
    struct scene_effects* effects = scene_effects_get(scene, layer != NULL);
    if (effects == NULL || effects->light_layer == layer) {
-@@ -3981,6 +4067,13 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
+@@ -3981,6 +4095,14 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
        bool result = fx_render_pass_add_optimized_blur(fx_pass, &blur_options);
        if (result) {
          scene_blur->dirty = false;
-+        if (scene->glass_light_mode == WLR_SCENE_GLASS_LIGHT_WALLPAPER && data->capture_x == 0
++        if (glass_light_source(scene, fx_pass->fx_offscreen_buffers) == WLR_SCENE_GLASS_LIGHT_WALLPAPER
++            && data->capture_x == 0
 +            && data->capture_y == 0) {
 +          fx_render_pass_sample_glass_light(
 +              fx_pass, fx_pass->fx_offscreen_buffers != NULL ? fx_pass->fx_offscreen_buffers->optimized_blur_buffer : NULL,
@@ -901,16 +957,25 @@ index b539b7a5..d7502dba 100644
        }
      }
      break;
-@@ -7123,6 +7216,15 @@ static bool scene_output_build_state(
+@@ -7123,6 +7245,24 @@ static bool scene_output_build_state(
      }
    }
  
 +  // Screen light: the composited frame, before output effects and cursors.
-+  if (scene_output->scene->glass_light_mode == WLR_SCENE_GLASS_LIGHT_SCREEN && fx_pass->fx_offscreen_buffers != NULL) {
++  // Wallpaper light after a switch back from the screen: the optimized blur as it is.
++  struct fx_offscreen_buffers* light_fbos = fx_pass->fx_offscreen_buffers;
++  const enum wlr_scene_glass_light_mode light_source = glass_light_source(scene_output->scene, light_fbos);
++  if (light_fbos != NULL) {
++    struct fx_glass_light* light = &light_fbos->glass_light;
 +    const int64_t now_ms = glass_light_now_ms();
-+    const struct fx_glass_light* light = &fx_pass->fx_offscreen_buffers->glass_light;
-+    if (now_ms - light->sampled_ms >= (int64_t)(1000.0F / scene_output->scene->glass_light_rate)) {
-+      fx_render_pass_sample_glass_light(fx_pass, fx_pass->buffer, now_ms);
++    if (light_source == WLR_SCENE_GLASS_LIGHT_SCREEN) {
++      if (now_ms - light->sampled_ms >= (int64_t)(1000.0F / scene_output->scene->glass_light_rate)) {
++        fx_render_pass_sample_glass_light(fx_pass, fx_pass->buffer, now_ms);
++      }
++    } else if (light_source == WLR_SCENE_GLASS_LIGHT_WALLPAPER && light->want_wallpaper && light->fence == NULL
++               && light_fbos->optimized_blur_valid) {
++      light->want_wallpaper = false;
++      fx_render_pass_sample_glass_light(fx_pass, light_fbos->optimized_blur_buffer, now_ms);
 +    }
 +  }
 +

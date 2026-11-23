@@ -28,7 +28,7 @@ let
   # umbriel-backdrop-corners.patch: a window's backdrop glass follows its
   # rounded corners instead of drawing a square under them (2026-11-17).
   # umbriel-glass-light.patch: backdrop programs see the brightest area of
-  # their output (umbriel_light, [effects] glass_light = off|wallpaper|screen),
+  # their output (umbriel_light, [effects] glass_light = off|wallpaper|screen|auto),
   # so the lens shaders light the rim from it (branch glass-light, SYS-139).
   # Both the system and Home Manager install it.
   patched =
