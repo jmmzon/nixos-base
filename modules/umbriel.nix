@@ -67,7 +67,52 @@ in
         (pkgs.writeShellScriptBin "desktop-overview-toggle" ''
           exec umbriel msg overview-toggle
         '')
+        # Graceful logout for the shell's session menu: closes the windows,
+        # waits for them (and for save dialogs), then ends the session.
+        (pkgs.writeShellApplication {
+          name = "desktop-logout";
+          runtimeInputs = [
+            (forHost pkgs osConfig.my)
+            pkgs.jq
+            pkgs.libnotify
+            pkgs.util-linux
+          ];
+          text = builtins.readFile ../home/umbriel/desktop-logout;
+        })
       ];
+      # Apps started from the launcher run in their own app-*.scope or
+      # app-*.service units, outside the graphical session, so they used to
+      # outlive a logout (or crash when the compositor went away). Stop them
+      # while the compositor still runs: this unit is ordered after
+      # graphical-session.target, so it stops before Umbriel does.
+      systemd.user.services.session-apps-stop = {
+        Unit = {
+          Description = "Stop launched apps when the graphical session ends";
+          PartOf = [ "graphical-session.target" ];
+          After = [ "graphical-session.target" ];
+          # Never restart it on a switch: stopping it stops every app (and so
+          # would removing it while a session runs).
+          X-SwitchMethod = "keep-old";
+        };
+        Service = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "${pkgs.coreutils}/bin/true";
+          # Stop them (SIGTERM), wait up to 5 s, then SIGKILL what is left.
+          ExecStop = pkgs.writeShellScript "session-apps-stop" ''
+            units=('app-*.scope' 'app-*.service')
+            systemctl() { ${pkgs.systemd}/bin/systemctl --user "$@"; }
+            systemctl stop --no-block "''${units[@]}" || true
+            for _ in $(${pkgs.coreutils}/bin/seq 50); do
+              [ -z "$(systemctl list-units --state=active,deactivating --no-legend "''${units[@]}")" ] && exit 0
+              ${pkgs.coreutils}/bin/sleep 0.1
+            done
+            systemctl kill --signal=SIGKILL "''${units[@]}" || true
+          '';
+          TimeoutStopSec = 10;
+        };
+        Install.WantedBy = [ "graphical-session.target" ];
+      };
       # Edge swipes, which libinput does not report: reads the touchpads' raw
       # touches beside libinput (no grab; the main user is in the input group).
       systemd.user.services.edge-swipe =

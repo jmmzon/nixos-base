@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Graceful logout: ask every window to close, as its close button would, so
+# applications can save or ask to; then end the Umbriel session.
+#
+# - Ends the session as soon as no window is left, or after the grace period
+#   (DESKTOP_LOGOUT_GRACE seconds, default 8).
+# - While a visible dialog is open (a child window, or a window that appeared
+#   after the close requests, such as "Save changes?"), the wait goes on past
+#   the grace period until it is answered.
+# - Running it again while it waits ends the session at once.
+set -euo pipefail
+
+grace="${DESKTOP_LOGOUT_GRACE:-8}"
+runtime_dir="${XDG_RUNTIME_DIR:?}"
+
+quit() {
+  exec umbriel msg session-quit skip-confirmation
+}
+
+# A second logout while the first one waits: log out now.
+exec 9>"$runtime_dir/desktop-logout.lock"
+if ! flock --nonblock 9; then
+  quit
+fi
+
+list_windows() {
+  umbriel windows --json
+}
+
+if ! windows="$(list_windows)"; then
+  quit
+fi
+
+# Close top-level windows only: closing a parent also takes its dialogs.
+closed="$(jq -c '[.[] | select(.parent == "") | .id]' <<<"$windows")"
+while IFS= read -r id; do
+  umbriel msg window-close "$id" >/dev/null 2>&1 || true
+done < <(jq -r '.[]' <<<"$closed")
+
+notification=""
+notify() {
+  local args=(--app-name=Session --icon=system-log-out --hint=boolean:transient:true --print-id)
+  [[ -n "$notification" ]] && args+=(--replace-id="$notification")
+  notification="$(notify-send "${args[@]}" "Logging out" "$1" 2>/dev/null || true)"
+}
+
+# Microseconds, from EPOCHREALTIME ($SECONDS only counts whole seconds).
+now() { echo "${EPOCHREALTIME/./}"; }
+deadline=$(($(now) + grace * 1000000))
+shown=""
+ticks=0
+while windows="$(list_windows)"; do
+  remaining="$(jq 'length' <<<"$windows")"
+  ((remaining == 0)) && break
+
+  # Dialogs keep the session open past the grace period.
+  dialogs="$(jq --argjson closed "$closed" \
+    '[.[] | select(.visible and (.parent != "" or (.id | IN($closed[]) | not)))] | length' \
+    <<<"$windows")"
+  if (($(now) >= deadline && dialogs == 0)); then
+    break
+  fi
+
+  if ((dialogs > 0)); then
+    message="Waiting for an open dialog. Log out again to quit now."
+  else
+    message="Waiting for $remaining window(s) to close."
+  fi
+  # Quiet for the first second: most windows close before then.
+  if ((++ticks > 5)) && [[ "$message" != "$shown" ]]; then
+    notify "$message"
+    shown="$message"
+  fi
+  sleep 0.2
+done
+
+quit
