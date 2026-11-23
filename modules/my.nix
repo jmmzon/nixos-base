@@ -455,6 +455,10 @@
           lockOnRemoval = lib.mkEnableOption ''
             locking every session (`loginctl lock-sessions`) when a YubiKey is unplugged and
             none is back within two seconds. Password and fingerprint still unlock'';
+          sudoPolkitFallback = lib.mkEnableOption ''
+            a graphical Polkit prompt for sudo when the YubiKey touch is unavailable (key
+            absent, touch timed out, no terminal). It runs after pam_u2f and before the Unix
+            password; if no Polkit agent answers, sudo falls through to the password'';
         };
 
         sequoiaWallpaper = {

@@ -3158,3 +3158,37 @@ string
  - [modules/my\.nix](../modules/my.nix)
 
 
+
+## my\.yubikey\.sudoPolkitFallback
+
+
+
+Whether to enable a graphical Polkit prompt for sudo when the YubiKey touch is unavailable (key
+absent, touch timed out, no terminal)\. It runs after pam_u2f and before the Unix
+password; if no Polkit agent answers, sudo falls through to the password\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
