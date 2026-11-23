@@ -9,6 +9,11 @@
 
     let
       domain = config.my.network.domain;
+      # Moonshine keeps Moonlight's default ports (47984-48010), so Sunshine
+      # moves its whole range up by 1000: add the host in Moonlight as
+      # `<host>:48989`. The web UI is the base port + 1.
+      basePort = 48989;
+      webPort = basePort + 1;
       sunshine = pkgs.sunshine.override {
         cudaSupport = true;
         cudaPackages = pkgs.cudaPackages;
@@ -31,7 +36,7 @@
           # The web UI serves a self-signed certificate on the loopback hop.
           my.services.sunshine = {
             enable = lib.mkDefault config.my.streaming.sunshine.enable;
-            port = 47990;
+            port = webPort;
             publicName = "sunshine";
             proxy.https = true;
             proxy.tlsInsecure = true;
@@ -41,13 +46,14 @@
           environment.systemPackages = [ output ];
 
           services.sunshine = {
-            enable = false; # Temporarily replaced by Moonshine; configuration retained.
+            enable = true;
             package = sunshine;
             openFirewall = true;
             # Compositor capture does not require the privileged KMS wrapper.
             capSysAdmin = false;
             settings = {
               sunshine_name = config.networking.hostName;
+              port = basePort;
               capture = "wlr";
               # Intel Quick Sync while the RTX 4090 is passed through.
               encoder = if config.virtualisation.windowsGpuPassthrough.enable or false then "vaapi" else "nvenc";
@@ -55,7 +61,9 @@
               upnp = "disabled";
               origin_web_ui_allowed = "lan";
               csrf_allowed_origins = lib.concatStringsSep "," (
-                lib.optional (config.my.network.lanAddress != null) "https://${config.my.network.lanAddress}:47990"
+                lib.optional (
+                  config.my.network.lanAddress != null
+                ) "https://${config.my.network.lanAddress}:${toString webPort}"
                 ++ [ "https://sunshine.${domain}" ]
               );
               global_prep_cmd = builtins.toJSON [
@@ -103,6 +111,8 @@
               test -S "''${UMBRIEL_SOCKET:-$XDG_RUNTIME_DIR/umbriel-$WAYLAND_DISPLAY.sock}"
             '';
             ExecStart = lib.mkForce "${config.security.wrapperDir}/sunshine ${sunshineConfig}";
+            # Restore the physical outputs even when Sunshine exits mid-stream.
+            ExecStopPost = "-${output}/bin/sunshine-output remove";
             UMask = "0077";
           };
         })

@@ -93,10 +93,10 @@
     {
       "id": "sunshine",
       "label": "Sunshine",
-      "description": "Game streaming and Moonlight pairing",
+      "description": "Moonlight host on port 48989: web UI and pairing (Moonshine stays on the default port)",
       "icon": "light",
       "subdomain": "sunshine",
-      "port": 47990,
+      "port": 48990,
       "scheme": "https"
     },
     {
