@@ -51,7 +51,17 @@
         start="$(sed 's/.*) //' /proc/$caller/stat | cut -d' ' -f20)"
         [[ $start =~ ^[0-9]+$ ]] || exit 1
         [ "$(stat -c %u /proc/$caller)" = "$ruid" ] || exit 1
-        command="$(tr '\0' ' ' < /proc/$PPID/cmdline | cut -d' ' -f2- | tr -d '\t\r\n' | cut -c1-200)"
+        # The command as the dialog shows it: control characters (NUL, tabs,
+        # newlines, escapes) become spaces and whitespace runs collapse
+        # before truncation, so padding cannot push a tail out of sight; a
+        # cut command ends in "…".
+        command="$(tr '\0' ' ' < /proc/$PPID/cmdline | tr '[:cntrl:]' ' ' | tr -s '[:space:]' ' ')"
+        command="''${command#* }"
+        command="''${command% }"
+        if [ "''${#command}" -gt 200 ]; then
+          command="''${command:0:199}…"
+        fi
+        logger -t sudo-polkit-fallback -- "command: $command"
         timeout --kill-after=2s 60s ${config.security.polkit.package.bin}/bin/pkcheck \
           --action-id ${actionId} --process "$caller,$start,$ruid" \
           --detail command "$command" --allow-user-interaction </dev/null 2>&1 | logger -t sudo-polkit-fallback

@@ -38,6 +38,11 @@ in
             machine.succeed("su - alice -c 'sudo -k; sudo true </dev/null'")
             machine.fail("su - bob -c 'sudo -k; sudo true </dev/null'")
             machine.succeed("su - bob -c 'sudo -k; echo pw | sudo -S true'")
+            # The dialog's command: whitespace padding collapses, long ones end in "…".
+            machine.succeed("su - alice -c 'sudo -k; sudo sh -c \"true$(printf %300s); echo evil\" </dev/null'")
+            machine.succeed("journalctl -t sudo-polkit-fallback -o cat | grep -Fx 'command: sh -c true ; echo evil'")
+            machine.succeed("su - alice -c 'sudo -k; sudo echo $(printf a%.0s {1..300}) </dev/null'")
+            machine.succeed("journalctl -t sudo-polkit-fallback -o cat | grep -Ex 'command: echo a{194}…'")
             machine.fail("su - bob -c 'sudo -k; echo wrong | sudo -S true'")
           '';
         };
