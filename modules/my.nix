@@ -487,6 +487,17 @@
           };
         };
 
+        strata.override = lib.mkOption {
+          type = lib.types.functionTo lib.types.package;
+          default = lib.id;
+          defaultText = lib.literalExpression "lib.id";
+          example = lib.literalExpression "strata: strata.overrideAttrs (old: { patches = old.patches ++ [ ./extra.patch ]; })";
+          description = ''
+            Function applied to the patched, unwrapped Strata package before the
+            launcher wrapper, for a host's own patches or helpers; the default
+            leaves it unchanged.'';
+        };
+
         vmwgfxDmabufFix = lib.mkEnableOption ''
           a wlroots patch for VMware guests (vmwgfx), applied to Umbriel and the
           Noctalia greeter's compositor: vmwgfx imports a client's DMA-BUF but fails

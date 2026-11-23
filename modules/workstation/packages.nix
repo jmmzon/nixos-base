@@ -21,7 +21,6 @@
 
       system = pkgs.stdenv.hostPlatform.system;
       isx86 = pkgs.stdenv.hostPlatform.isx86_64;
-      chomik = inputs.chomik.packages.${system}.default;
       # Strata opens its terminal through $TERMINAL: Monstar, stacked below
       # Strata in its Umbriel column (home/strata/terminal). The launcher
       # entry calls the binary by store path, so it is rewritten to the wrapper.
@@ -60,13 +59,16 @@
       # terminal-sync): it publishes the focused window's folder and takes a
       # sync-navigate action; branch terminal-sync also carries the footer
       # free-space patch. Strata is built from source because of them.
-      strataUnwrapped = inputs.strata.packages.${system}.default.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [
-          ../../patches/strata-terminal-sync.patch
-          # The footer also shows the free space of the folder's filesystem.
-          ../../patches/strata-footer-free-space.patch
-        ];
-      });
+      # my.strata.override lets a host add its own patches on top.
+      strataUnwrapped = config.my.strata.override (
+        inputs.strata.packages.${system}.default.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ [
+            ../../patches/strata-terminal-sync.patch
+            # The footer also shows the free space of the folder's filesystem.
+            ../../patches/strata-footer-free-space.patch
+          ];
+        })
+      );
       strata = pkgs.symlinkJoin {
         name = "strata-${strataUnwrapped.version or "wrapped"}";
         paths = [ strataUnwrapped ];
@@ -255,8 +257,6 @@
           linux-wallpaperengine
           aiUsagebar
           auroraNcs
-          # Chomikuj.pl client; also the chomik:// link handler (modules/home/desktop.nix).
-          chomik
           ut2004.ut2004
           ut2004.ut2004-import-rpm
           ut2004.ut2004-setup

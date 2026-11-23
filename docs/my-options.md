@@ -1666,6 +1666,40 @@ true
 
 
 
+## my\.strata\.override
+
+
+
+Function applied to the patched, unwrapped Strata package before the
+launcher wrapper, for a host’s own patches or helpers; the default
+leaves it unchanged\.
+
+
+
+*Type:*
+function that evaluates to a(n) package
+
+
+
+*Default:*
+
+```nix
+lib.id
+```
+
+
+
+*Example:*
+
+```nix
+strata: strata.overrideAttrs (old: { patches = old.patches ++ [ ./extra.patch ]; })
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
 ## my\.streaming\.moonshine\.enable
 
 

@@ -10,11 +10,6 @@
       url = "github:question44/erebor-dashboard/b6eb1e80f1b802ec3dcf035d4301ab376269b1b2";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Chomik, the Chomikuj.pl client (question44/chomik-qml), pinned to a commit.
-    chomik = {
-      url = "github:question44/chomik-qml/c878fda454f6d3d45e25a3b7b836c89aec07c86f";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     moonshine = {
       url = "github:hgaiser/moonshine/ec162f96dfa4197c4dc2d71bb631aaa97e00167a";
       inputs.nixpkgs.follows = "nixpkgs";
