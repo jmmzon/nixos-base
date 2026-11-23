@@ -2,7 +2,7 @@
   flake.modules.nixos.nvidia =
     { config, lib, ... }:
 
-    lib.mkIf (!config.virtualisation.windowsGpuPassthrough.enable) {
+    lib.mkIf (!(config.virtualisation.windowsGpuPassthrough.enable or false)) {
       hardware.graphics.enable = true;
       hardware.graphics.enable32Bit = true;
 
