@@ -15,7 +15,9 @@ import json
 import sys
 from typing import Callable
 
-from jsonline import Error, peer_of
+from erebor_desktop.server import peer_of
+
+from .errors import Refused as Error
 
 CALL_TIMEOUT = 30.0
 MAX_LINE = 64 * 1024

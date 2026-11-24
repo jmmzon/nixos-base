@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from jsonline import Error
+from .errors import Refused as Error
 
 PROFILES = ("performance", "balanced", "power-saver")
 POWER_PROFILES = (

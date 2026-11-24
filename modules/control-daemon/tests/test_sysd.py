@@ -12,8 +12,7 @@ import time
 
 import pytest
 
-import jsonline
-from jsonline import Server
+from erebor_desktop import server as srv
 from sysd.daemon import Sysd
 from sysd.policy import Policy, stricter
 
@@ -25,6 +24,24 @@ APPROVAL_RUN = os.environ.get(
 
 def run(coro):
     return asyncio.run(asyncio.wait_for(coro, 30))
+
+
+async def request(path, obj):
+    """Every line of one request's answer, up to the reply (the line with "ok")."""
+    reader, writer = await asyncio.open_unix_connection(path)
+    out = []
+    try:
+        writer.write((json.dumps(obj) + "\n").encode())
+        await writer.drain()
+        while True:
+            raw = await asyncio.wait_for(reader.readline(), 10)
+            if not raw:
+                raise ConnectionError("closed before the reply")
+            out.append(json.loads(raw))
+            if "ok" in out[-1]:
+                return out
+    finally:
+        writer.close()
 
 
 # ── Policy ──────────────────────────────────────────────────────────────────
@@ -131,6 +148,7 @@ class Fixture:
             return await self.r(*argv, timeout=timeout)
 
     async def __aexit__(self, *exc):
+        await self.sysd.stop()
         self.fake.kill()
         self.fake.wait()
 
@@ -140,7 +158,7 @@ class Fixture:
         return [json.loads(line) for line in out.splitlines() if line.strip()]
 
     async def call(self, req):
-        return [line async for line in jsonline.request(self.control, req)]
+        return await request(self.control, req)
 
 
 async def restart_fake(f, *args):
@@ -174,30 +192,35 @@ async def restart_fake(f, *args):
 
 
 class FakeDesktop:
-    """Stands in for erebor-desktopd: a jsonline server that dials the uplink."""
+    """Stands in for erebor-desktopd: the same server, dialling the uplink."""
 
     def __init__(self, path):
-        self.server = Server()
+        self.path = path
         self.state = {"look": "glass", "layout": "glass"}
         self.got = []
+        f = srv.Feature("presets", events=["preset-changed"], flat_snapshot=True)
+        f.snapshot = lambda ctx: dict(self.state)
 
-        async def get(req, conn):
-            return dict(self.state)
+        @f.command("get-noctalia-preset")
+        async def get(ctx, req):
+            return {"ok": True, **self.state}
 
-        async def set_(req, conn):
+        @f.command("set-noctalia-preset", mutates=True)
+        async def set_(ctx, req):
             self.got.append(req)
             self.state.update({k: req[k] for k in ("look", "layout") if req.get(k)})
-            self.server.emit({"event": "preset-changed", **self.state})
-            return dict(self.state)
+            ctx.emit("preset-changed", **self.state)
+            return {"ok": True, **self.state}
 
-        self.server.hello = lambda conn: dict(self.state)
-        self.server.add({"get-noctalia-preset": get, "set-noctalia-preset": set_})
-        self.task = asyncio.create_task(self.server.dial(path, min_delay=0.05))
+        self.daemon = srv.Daemon([f], os.path.join(tempfile.mkdtemp(), "desktop.sock"))
 
-    def stop(self):
-        self.task.cancel()
-        for c in list(self.server.connections):
-            c.close()
+    async def start(self):
+        await self.daemon.start()
+        self.daemon.dial(self.path, min_delay=0.05)
+        return self
+
+    async def stop(self):
+        await self.daemon.stop()
 
 
 async def until(pred, timeout=5):
@@ -308,13 +331,12 @@ def test_forwarding_and_session_events():
             sub_w.write(b'{"command":"subscribe"}\n')
             await sub_w.drain()
             hello = json.loads(await sub_r.readline())
-            assert hello == {"ok": True, "subscribed": True, "session": "down", "desktop": None}
+            assert hello["subscribed"] and hello["session"] == "down" and hello["desktop"] is None
+            assert hello["state"]["desktop"] == {"session": "down", "desktop": None}
 
-            d = FakeDesktop(f.session)
-            assert json.loads(await sub_r.readline()) == {
-                "event": "session-up",
-                "desktop": {"look": "glass", "layout": "glass"},
-            }
+            d = await FakeDesktop(f.session).start()
+            up = json.loads(await sub_r.readline())
+            assert up["event"] == "session-up" and up["desktop"]["look"] == "glass", up
             # Read-only, not in the policy: allowed.
             assert (await f.call({"command": "desktop.get-noctalia-preset"}))[-1] == {
                 "ok": True,
@@ -349,7 +371,7 @@ def test_forwarding_and_session_events():
 
             # The session goes away.
             await asyncio.sleep(0.05)  # drain the event of the second switch
-            d.stop()
+            await d.stop()
             while True:
                 ev = json.loads(await asyncio.wait_for(sub_r.readline(), 5))
                 if ev["event"] == "session-down":
@@ -364,21 +386,22 @@ def test_forwarding_and_session_events():
 def test_new_uplink_replaces_old_and_wrong_uid_refused():
     async def main():
         async with Fixture() as f:
-            d1 = FakeDesktop(f.session)
+            d1 = await FakeDesktop(f.session).start()
             await until(lambda: f.sysd.uplinks.up)
             s1 = f.sysd.uplinks.session
             d2 = FakeDesktop(f.session)
             d2.state["look"] = "second"
+            await d2.start()
             await until(lambda: f.sysd.uplinks.session is not s1 and f.sysd.uplinks.up)
             assert (await f.call({"command": "desktop.get-noctalia-preset"}))[-1]["look"] == "second"
-            d1.stop()
-            d2.stop()
+            await d1.stop()
+            await d2.stop()
             f.sysd.uplinks.uid = 0 if os.getuid() != 0 else 1
             await until(lambda: not f.sysd.uplinks.up)
-            d3 = FakeDesktop(f.session)
+            d3 = await FakeDesktop(f.session).start()
             await asyncio.sleep(0.3)
             assert not f.sysd.uplinks.up
-            d3.stop()
+            await d3.stop()
 
     run(main())
 

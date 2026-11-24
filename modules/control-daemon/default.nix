@@ -7,16 +7,16 @@
 # steps are polkit grants to that user for the actions the policy lists.
 # docs/control-daemon.md describes the design and the protocol.
 #
-# jsonline/ is the asyncio JSON-per-line server it is built on, shared with
-# erebor-desktopd: `pythonPackages.callPackage ./_jsonline.nix { }`, or the
-# python-jsonline package.
+# erebor_desktop/server.py is the asyncio JSON-per-line server it is built on,
+# shared with erebor-desktopd (which copies it from here; import path
+# erebor_desktop.server).
 { lib, ... }:
 let
   src = lib.fileset.toSource {
     root = ./.;
     fileset = lib.fileset.unions [
       ./run.py
-      ./jsonline
+      ./erebor_desktop
       ./sysd
     ];
   };
@@ -38,8 +38,6 @@ in
   perSystem =
     { pkgs, ... }:
     {
-      packages.python-jsonline = pkgs.python3Packages.callPackage ./_jsonline.nix { };
-
       # Unit and socket tests: the server, the policy, approvald-fake for
       # approvals, a fake desktopd on the uplink.
       checks.control-daemon-unit =
@@ -52,7 +50,7 @@ in
             export APPROVAL_RUN=${../approval}/run.py
             export PYTHONPATH=$PWD
             python3 -m pytest -q -p no:cacheprovider tests
-            python3 -m unittest test_server
+            python3 -m unittest test_server test_server_extras
             touch $out
           '';
     };

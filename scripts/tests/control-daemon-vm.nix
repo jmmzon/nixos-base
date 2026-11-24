@@ -10,27 +10,34 @@ let
   f = builtins.getFlake (toString flake);
   pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux;
   inherit (f.modules) nixos;
-  jsonline = pkgs.python3Packages.callPackage "${flake}/modules/control-daemon/_jsonline.nix" { };
-  # Stands in for erebor-desktopd: dials the uplink and answers two commands.
+  # Stands in for erebor-desktopd: the shared server, dialling the uplink.
   fakeDesktop = pkgs.writeScript "fake-desktopd" ''
-    #!${pkgs.python3.withPackages (_: [ jsonline ])}/bin/python3
-    import asyncio
-    from jsonline import Server
+    #!${pkgs.python3}/bin/python3
+    import asyncio, os, sys, tempfile
+    sys.path.insert(0, "${f}/modules/control-daemon")
+    from erebor_desktop.server import Daemon, Feature
 
     state = {"look": "glass", "layout": "glass"}
-    s = Server()
-    s.hello = lambda conn: dict(state)
+    f = Feature("presets", events=["preset-changed"], flat_snapshot=True)
+    f.snapshot = lambda ctx: dict(state)
 
-    async def get(req, conn):
-        return dict(state)
+    @f.command("get-noctalia-preset")
+    async def get(ctx, req):
+        return {"ok": True, **state}
 
-    async def set_(req, conn):
+    @f.command("set-noctalia-preset", mutates=True)
+    async def set_(ctx, req):
         state["look"] = req.get("look") or state["look"]
-        s.emit({"event": "preset-changed", **state})
-        return dict(state)
+        ctx.emit("preset-changed", **state)
+        return {"ok": True, **state}
 
-    s.add({"get-noctalia-preset": get, "set-noctalia-preset": set_})
-    asyncio.run(s.dial("/run/erebor/sysd-session.sock", min_delay=0.2))
+    async def main():
+        d = Daemon([f], os.path.join(tempfile.mkdtemp(), "desktop.sock"))
+        await d.start()
+        d.dial("/run/erebor/sysd-session.sock", min_delay=0.2)
+        await asyncio.Event().wait()
+
+    asyncio.run(main())
   '';
   # Any user can reach the uplink socket; sysd must refuse other uids.
   probeUplink = pkgs.writeScript "probe-uplink" ''

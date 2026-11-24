@@ -45,9 +45,9 @@ erebor-desktopd (the session user's) ──────────────�
 
 ## Protocol
 
-JSON per line (the `jsonline` server, shared with erebor-desktopd). One
-request per line with a `command`; requests with an `id` are handled
-concurrently and every line of their answer carries that `id`.
+JSON per line (the shared server below). One request per line with a
+`command`, answered in order; an `id` is echoed on every line of its
+answer.
 
 ```json
 {"command":"set-power-profile","profile":"balanced","origin":"dashboard","origin_user":"alice"}
@@ -73,21 +73,24 @@ or approvald's error), `bad-request` (plus `field`), `no-session`,
 `erebor-sys COMMAND [key=value ...]` is the command-line client
 (`erebor-sys subscribe` prints events; `--json` prints every line).
 
-## The jsonline server
+## The server
 
-`modules/control-daemon/jsonline` is an asyncio JSON-per-line server for
-local daemons: feature modules register command tables
-(`server.add({"name": handler})`); a handler returns its reply or is an
-async generator of progress lines and the reply; each connection has one
-bounded output queue and writer, and a subscriber that stalls is dropped
-instead of blocking anyone. `server.dial(path)` serves a connection the
-daemon opened itself (desktopd's uplink). It is packaged as
-`python-jsonline` (`python3Packages.callPackage
-modules/control-daemon/_jsonline.nix { }`).
+`modules/control-daemon/erebor_desktop/server.py` is the asyncio
+JSON-per-line daemon both sysd and erebor-desktopd are built on (desktopd
+copies it from here; import path `erebor_desktop.server`). A daemon is a
+set of features, each registering commands, events, CLI subcommands and
+supervised tasks; state-changing commands share one lock; each subscriber
+has a bounded queue and is dropped when it stalls. For sysd it also has: a
+streaming command (an async generator: progress lines, then the reply),
+`cancel_on_hangup`, a `prefix` handler (`desktop.`), the client's
+credentials (`ctx.connection.peer`) with an `accept` hook, a socket from
+systemd (`sock=`, `listen_fds()`), and `dial(path)` to serve a connection
+the daemon opens itself (desktopd's uplink). The module docstring is the
+reference.
 
 ## Testing
 
 `checks.<system>.control-daemon-unit` runs the server, policy and daemon
-tests (approvald-fake for approvals, a fake desktopd on the uplink).
+tests (`test_server.py` came with the server) (approvald-fake for approvals, a fake desktopd on the uplink).
 `scripts/tests/control-daemon-vm.nix` is the VM test (polkit grants, the
 three policy levels, refused peers, forwarding).
