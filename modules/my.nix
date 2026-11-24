@@ -112,6 +112,17 @@
           '';
         };
 
+        desktopd.featureDirs = lib.mkOption {
+          type = lib.types.listOf lib.types.path;
+          default = [ ];
+          internal = true;
+          description = ''
+            Directories of extra feature modules for a host's desktop control
+            daemon (erebor-desktopd), filled by the aspects that provide one (desktop
+            modes). A host without that daemon ignores it.
+          '';
+        };
+
         secretsFile = lib.mkOption {
           type = lib.types.nullOr lib.types.path;
           default = null;
