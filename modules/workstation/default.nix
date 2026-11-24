@@ -20,6 +20,7 @@ in
       headphone-eq
       mac-approval
       approval
+      control-daemon
       sudo-polkit-fallback
       spotify
       sunshine

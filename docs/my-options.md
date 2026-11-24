@@ -879,6 +879,382 @@ config.my.user.name
 
 
 
+## my\.controlDaemon\.enable
+
+
+
+Whether to enable erebor-sysd, the system control daemon (` erebor-sys `)\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.actions
+
+
+
+The policy, per action: get-power-profile, set-power-profile, sleep, power-off, reboot-windows, or a
+desktop command forwarded to erebor-desktopd as ` desktop.<command> `\.
+An action not listed is refused, except read-only ones
+(` get-* `, ` list-* `, ` status `), which any caller may run\.
+
+
+
+*Type:*
+attribute set of (submodule)
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  set-power-profile.approval = "none";
+  reboot-windows = {
+    approval = "approve";
+    callers.local = "none";
+    origins.dashboard = "approve";
+  };
+  "desktop.set-noctalia-preset".approval = "none";
+}
+
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.actions\.\<name>\.approval
+
+
+
+` none ` runs it, ` approve ` asks approvald first, ` deny ` refuses it\.
+
+
+
+*Type:*
+one of “none”, “approve”, “deny”
+
+
+
+*Default:*
+
+```nix
+"deny"
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.actions\.\<name>\.callers
+
+
+
+Per caller (a name in ` callers `), replacing ` approval `\.
+
+
+
+*Type:*
+attribute set of (one of “none”, “approve”, “deny”)
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.actions\.\<name>\.methods
+
+
+
+Approval methods for this action; default ` approval.methods `\.
+
+
+
+*Type:*
+null or (list of string)
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.actions\.\<name>\.origins
+
+
+
+Per origin the request names (` dashboard `, …)\. Not proven, so it
+can only make approval stricter than the caller’s level\.
+
+
+
+*Type:*
+attribute set of (one of “none”, “approve”, “deny”)
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.actions\.\<name>\.risk
+
+
+
+The approval’s risk (` high ` excludes weak methods)\.
+
+
+
+*Type:*
+one of “low”, “high”
+
+
+
+*Default:*
+
+```nix
+"high"
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.approval\.methods
+
+
+
+Methods sysd may ask approvald for (its caller ceiling)\. The desktop
+method is left out by default: any process of the user can answer it\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+the enabled ones of [ "phone" "yubikey" "mac" ]
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.approval\.timeout
+
+
+
+Seconds an approval waits\.
+
+
+
+*Type:*
+integer between 5 and 300 (both inclusive)
+
+
+
+*Default:*
+
+```nix
+60
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.callers
+
+
+
+Who may connect, by the peer’s user (matched first) or group\. Users
+named here join the socket’s group, ` erebor-control `\. Anyone else
+is refused\.
+
+
+
+*Type:*
+attribute set of (submodule)
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{ local.users = [ "alice" ]; admins.groups = [ "wheel" ]; }
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.callers\.\<name>\.groups
+
+
+
+Groups (primary or supplementary) that are this caller\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.callers\.\<name>\.users
+
+
+
+Users that are this caller\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.rebootWindowsUnit
+
+
+
+The unit ` reboot-windows ` starts (a fixed, root-run oneshot)\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+"dashboard-reboot-windows.service" when it exists
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
+## my\.controlDaemon\.sessionUser
+
+
+
+The user whose erebor-desktopd may connect as the desktop session\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+config.my.user.name
+```
+
+*Declared by:*
+ - [modules/control-daemon/default\.nix](../modules/control-daemon/default.nix)
+
+
+
 ## my\.dashboard\.settingsFile
 
 
@@ -2490,8 +2866,6 @@ true
 
 ## my\.taskBoard\.linkBase
 
-
-
 URL prefix that makes task file paths (tasks/SYS-NNN\.md) into links; null shows no links\.
 
 
@@ -2911,6 +3285,8 @@ absolute path
 
 
 ## my\.xremap\.config
+
+
 
 The user’s xremap keymap: one file or a list of files, deployed under
 ~/\.config/xremap by their own names (which must differ)\. xremap loads them
