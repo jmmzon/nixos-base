@@ -112,6 +112,31 @@
           '';
         };
 
+        iconTheme = {
+          package = lib.mkOption {
+            type = lib.types.package;
+            default = pkgs.fluent-icon-theme;
+            defaultText = lib.literalExpression "pkgs.fluent-icon-theme";
+            description = "Package that provides the desktop icon theme (GTK, Qt/KDE).";
+          };
+          dark = lib.mkOption {
+            type = lib.types.str;
+            default = "Fluent-dark";
+            description = ''
+              Icon theme name used in dark mode, and the Home Manager default
+              before the theme-mode hook first runs.
+            '';
+          };
+          light = lib.mkOption {
+            type = lib.types.str;
+            default = "Fluent-light";
+            description = ''
+              Icon theme name used in light mode (set to the same name as `dark`
+              for a theme without light and dark variants).
+            '';
+          };
+        };
+
         desktopd.featureDirs = lib.mkOption {
           type = lib.types.listOf lib.types.path;
           default = [ ];

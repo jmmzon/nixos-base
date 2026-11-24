@@ -15,7 +15,7 @@
 #   glass.toml. A file with an include, not a symlink: Umbriel watches an
 #   include's resolved target, so it would miss a symlink being repointed;
 #   it does see this file replaced or removed, and edits of the target;
-# - sets the icon theme to Fluent-dark / Fluent-light (dconf for GTK,
+# - sets the icon theme to my.iconTheme.dark / .light (dconf for GTK,
 #   kdeglobals for Qt/KDE) and tells running apps to reload their icons;
 # - on a mode change, remembers Noctalia's surface opacities and Darkly's (Qt
 #   apps: Dolphin...) as they were in the old mode and restores the new mode's.
@@ -267,7 +267,11 @@
           fi
 
           # Icon theme follows the mode too: GTK reads dconf, Qt/KDE kdeglobals.
-          icons="Fluent-$mode"
+          if [ "$mode" = light ]; then
+            icons=${lib.escapeShellArg osConfig.my.iconTheme.light}
+          else
+            icons=${lib.escapeShellArg osConfig.my.iconTheme.dark}
+          fi
           dconf write /org/gnome/desktop/interface/icon-theme "'$icons'" || true
           kwriteconfig6 --file "''${XDG_CONFIG_HOME:-$HOME/.config}/kdeglobals" \
             --group Icons --key Theme "$icons" || true

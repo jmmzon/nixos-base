@@ -1662,6 +1662,80 @@ null
 
 
 
+## my\.iconTheme\.package
+
+
+
+Package that provides the desktop icon theme (GTK, Qt/KDE)\.
+
+
+
+*Type:*
+package
+
+
+
+*Default:*
+
+```nix
+pkgs.fluent-icon-theme
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
+## my\.iconTheme\.dark
+
+
+
+Icon theme name used in dark mode, and the Home Manager default
+before the theme-mode hook first runs\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"Fluent-dark"
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
+## my\.iconTheme\.light
+
+
+
+Icon theme name used in light mode (set to the same name as ` dark `
+for a theme without light and dark variants)\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"Fluent-light"
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
 ## my\.liquidGlass\.enable
 
 
@@ -2766,8 +2840,6 @@ strata: strata.overrideAttrs (old: { patches = old.patches ++ [ ./extra.patch ];
 
 ## my\.streaming\.moonshine\.enable
 
-
-
 Whether to enable the Moonshine game-streaming server\.
 
 
@@ -2865,6 +2937,8 @@ true
 
 
 ## my\.taskBoard\.linkBase
+
+
 
 URL prefix that makes task file paths (tasks/SYS-NNN\.md) into links; null shows no links\.
 

@@ -36,10 +36,10 @@
       gtk = {
         enable = true;
         # Default only: erebor-theme-opacity (theme-opacity.nix) switches
-        # Fluent-dark / Fluent-light with Noctalia's light/dark mode.
+        # my.iconTheme.dark / .light with Noctalia's light/dark mode.
         iconTheme = {
-          name = "Fluent-dark";
-          package = pkgs.fluent-icon-theme;
+          name = osConfig.my.iconTheme.dark;
+          inherit (osConfig.my.iconTheme) package;
         };
       };
       xdg.userDirs = {
