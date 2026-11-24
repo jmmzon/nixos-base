@@ -55,6 +55,7 @@ in
       home-manager
       update-branch
       secrets
+      secure-boot
     ];
     # On only through nixpkgs' graphical-desktop default; its eSpeak NG pulls
     # every MBROLA voice (0.7 GB). Browsers and Qt link their own minimal

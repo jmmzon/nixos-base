@@ -616,6 +616,18 @@
           };
         };
 
+        secureBoot = {
+          enable = lib.mkEnableOption ''
+            UEFI Secure Boot through Lanzaboote: signed systemd-boot and unified
+            kernel images replace the host's boot loader. Keys are made with
+            `sbctl create-keys` and enrolled by hand in the firmware's setup mode'';
+          pkiBundle = lib.mkOption {
+            type = lib.types.str;
+            default = "/var/lib/sbctl";
+            description = "Directory holding the Secure Boot keys sbctl made.";
+          };
+        };
+
         nanokvm = {
           enable = lib.mkEnableOption "NanoKVM wake and outlet readings in the dashboard";
           url = lib.mkOption {

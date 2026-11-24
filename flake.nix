@@ -65,6 +65,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     import-tree.url = "github:vic/import-tree/eb1b52eaecc57f7c136d07ae8a93e724dfecac46";
+    # Secure Boot: signed systemd-boot and unified kernel images (v1.2.0).
+    lanzaboote = {
+      url = "github:nix-community/lanzaboote/c1c5edd31802d181c8aa2c71588995d93425d650";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   # Dendritic layout: every .nix file under modules/ is a flake-parts module

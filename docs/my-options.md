@@ -2282,6 +2282,64 @@ null
 
 
 
+## my\.secureBoot\.enable
+
+
+
+Whether to enable UEFI Secure Boot through Lanzaboote: signed systemd-boot and unified
+kernel images replace the host’s boot loader\. Keys are made with
+` sbctl create-keys ` and enrolled by hand in the firmware’s setup mode\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
+## my\.secureBoot\.pkiBundle
+
+
+
+Directory holding the Secure Boot keys sbctl made\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"/var/lib/sbctl"
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
 ## my\.sequoiaWallpaper\.enable
 
 
@@ -2772,8 +2830,6 @@ positive integer, meaning >0
 
 ## my\.spotify\.desktopApp\.enable
 
-
-
 Whether to enable the official Spotify desktop app, themed by Noctalia through Spicetify
 (Spotifast is installed either way)
 \.
@@ -2839,6 +2895,8 @@ strata: strata.overrideAttrs (old: { patches = old.patches ++ [ ./extra.patch ];
 
 
 ## my\.streaming\.moonshine\.enable
+
+
 
 Whether to enable the Moonshine game-streaming server\.
 
