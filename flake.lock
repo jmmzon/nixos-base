@@ -47,17 +47,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1795043969,
-        "narHash": "sha256-x5S26BAdssQPADPUO+7adggx/cssB+7X5ERnAYncpZ4=",
+        "lastModified": 1795523022,
+        "narHash": "sha256-6qgsfFQVLlMDAd0smJJxt4GAxWtxANv7dS0d74bNmh8=",
         "owner": "question44",
         "repo": "erebor-dashboard",
-        "rev": "b6eb1e80f1b802ec3dcf035d4301ab376269b1b2",
+        "rev": "ce53307dbc189b6a7eca7130dd4ff4c795c1b694",
         "type": "github"
       },
       "original": {
         "owner": "question44",
         "repo": "erebor-dashboard",
-        "rev": "b6eb1e80f1b802ec3dcf035d4301ab376269b1b2",
+        "rev": "ce53307dbc189b6a7eca7130dd4ff4c795c1b694",
         "type": "github"
       }
     },
