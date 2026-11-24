@@ -11,6 +11,12 @@ brightness, a plugin's pause, a command pair).
 saved), items no longer wanted are restored. A value the user changed by hand
 since it was applied is left alone. The outcome is written to state.json for
 the surfaces (Noctalia plugins, glass tuner, dashboard) to read.
+
+`suspend` restores every item while the modes stay active (state.json is left
+as it is) and holds them off until `resume` (or HOLD_SECONDS), so a desktop
+preset switch can run between the two; erebor-desktopd orders that. After
+each state.json write the engine tells erebor-desktopd (best effort), which
+emits `mode-changed` to its subscribers.
 """
 
 import argparse
@@ -21,9 +27,11 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.request
 
 with open(os.environ["EREBOR_MODES_MANIFEST"]) as _f:
@@ -35,6 +43,9 @@ STATE = os.path.join(STATE_DIR, "state.json")
 SAVED = os.path.join(STATE_DIR, "saved.json")
 # Modes switched by hand (kind "toggle", e.g. reduce-transparency); kept across reboots.
 TOGGLES = os.path.join(STATE_DIR, "toggles.json")
+# While present and fresh, items stay restored (`suspend` .. `resume`).
+HOLD = os.path.join(STATE_DIR, "hold.json")
+HOLD_SECONDS = 120
 
 
 def log(msg):
@@ -108,9 +119,70 @@ def noctalia_set(key, value):
     run("noctalia", "msg", "config-set", key, toml_literal(value))
 
 
+def noctalia_settings_path():
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(base, "noctalia", "settings.toml")
+
+
+def noctalia_overridden(key):
+    """Whether Noctalia's settings.toml (its overrides, where config-set writes) has key."""
+    try:
+        with open(noctalia_settings_path(), "rb") as f:
+            node = tomllib.load(f)
+    except FileNotFoundError:
+        return False
+    except (OSError, tomllib.TOMLDecodeError):
+        return None  # unknown: restore by setting the value, as before
+    for part in key.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    return True
+
+
+def noctalia_unset(key):
+    """Remove key from settings.toml (tables it leaves empty too) and reload.
+
+    config-set can only add overrides; a value that came from the config file
+    goes back by removing the override, so a later preset switch (which
+    changes the config file) is not hidden by a stale copy.
+    """
+    import tomlkit
+
+    path = noctalia_settings_path()
+    with open(path) as f:
+        doc = tomlkit.parse(f.read())
+    parts = key.split(".")
+    chain = [doc]
+    for part in parts[:-1]:
+        node = chain[-1].get(part) if hasattr(chain[-1], "get") else None
+        if node is None:
+            return
+        chain.append(node)
+    if parts[-1] not in chain[-1]:
+        return
+    del chain[-1][parts[-1]]
+    for i in range(len(chain) - 1, 0, -1):
+        if len(chain[i]) == 0:
+            del chain[i - 1][parts[i - 1]]
+        else:
+            break
+    tmp = path + ".tmp.erebor-modes"
+    with open(tmp, "w") as f:
+        f.write(tomlkit.dumps(doc))
+    os.replace(tmp, path)
+    run("noctalia", "msg", "config-reload")
+
+
 class NoctaliaSetting:
     def __init__(self, p):
         self.key, self.value = p["key"], p["value"]
+
+    def overridden(self):
+        return noctalia_overridden(self.key)
+
+    def unset(self):
+        noctalia_unset(self.key)
 
     def read(self):
         return noctalia_get(self.key)
@@ -128,6 +200,12 @@ class NoctaliaSetting:
 class NoctaliaListRemove:
     def __init__(self, p):
         self.key, self.entry = p["key"], p["entry"]
+
+    def overridden(self):
+        return noctalia_overridden(self.key)
+
+    def unset(self):
+        noctalia_unset(self.key)
 
     def read(self):
         value = noctalia_get(self.key)
@@ -342,6 +420,14 @@ def handler(item):
     return HANDLERS[item["handler"]](item.get("params", {}))
 
 
+def restore(h, rec):
+    """Put an item back: remove the Noctalia override it created, else set the original."""
+    if hasattr(h, "unset") and rec.get("overridden") is False:
+        h.unset()
+    else:
+        h.restore(rec["original"])
+
+
 def changed(h, applied, current):
     if hasattr(h, "changed"):
         return bool(h.changed(applied, current))
@@ -452,7 +538,71 @@ def locked():
         yield
 
 
+def held():
+    """The hold record while `suspend` is in force (it expires on its own)."""
+    h = load(HOLD, None)
+    if isinstance(h, dict) and h.get("until", 0) > time.time():
+        return h
+    return None
+
+
+def ping_daemon():
+    """Tell erebor-desktopd that state.json changed (no reply awaited, best effort)."""
+    run_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    with contextlib.suppress(OSError):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            s.connect(os.path.join(run_dir, "erebor-desktop.sock"))
+            s.sendall(b'{"command": "modes-changed"}\n')
+
+
+def suspend():
+    """Restore every item, keep the modes (state.json untouched), hold until resume."""
+    state = load(STATE, {})
+    saved = load(SAVED, {})
+    hold = held() or {"overrides": []}
+    hold["until"] = time.time() + HOLD_SECONDS
+    restored, kept = [], []
+    for iid in list(saved):
+        rec = saved.pop(iid)
+        _, item = all_items().get(iid, (None, rec.get("item")))
+        if item is None:
+            continue
+        h = handler(item)
+        try:
+            if changed(h, rec["applied"], h.read()):
+                # Changed by hand: leave it, and do not apply it again on resume.
+                kept.append(iid)
+            else:
+                restore(h, rec)
+                after(item)
+                restored.append(iid)
+        except Skip as e:
+            log(f"{iid}: suspend skipped: {e}")
+        except Exception as e:
+            log(f"{iid}: suspend failed: {e}")
+    hold["overrides"] = sorted(set(hold["overrides"]) | set(kept))
+    save(SAVED, saved)
+    save(HOLD, hold)
+    return {"modes": state.get("modes", []), "restored": restored, "kept": kept}
+
+
+def resume():
+    """End a suspend: apply the active modes' items again (quietly)."""
+    hold = held() or {}
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(HOLD)
+    return sync(override_add=hold.get("overrides", []), quiet=True)
+
+
 def sync(requested_add=(), override_add=(), quiet=False):
+    hold = held()
+    if hold:
+        # A preset switch is in progress (suspend): nothing is applied until resume.
+        log("suspended; sync deferred to resume")
+        return load(STATE, {})
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(HOLD)  # expired
     state = load(STATE, {})
     saved = load(SAVED, {})
     f = facts()
@@ -484,7 +634,7 @@ def sync(requested_add=(), override_add=(), quiet=False):
                 kept.append(item["label"])
                 log(f"{iid}: changed by hand ({current}), kept")
             else:
-                h.restore(rec["original"])
+                restore(h, rec)
                 after(item)
                 restored.append(item["label"])
         except Skip as e:
@@ -507,9 +657,12 @@ def sync(requested_add=(), override_add=(), quiet=False):
                     entry["status"] = "applied"
             else:
                 original = h.read()
+                overridden = h.overridden() if hasattr(h, "overridden") else None
                 applied = h.apply(original)
                 after(item)
                 saved[iid] = {"original": original, "applied": applied, "item": item}
+                if overridden is not None:
+                    saved[iid]["overridden"] = overridden
                 entry["status"] = "applied"
         except Skip as e:
             entry.update(status="skipped", reason=str(e))
@@ -545,6 +698,7 @@ def sync(requested_add=(), override_add=(), quiet=False):
     }
     save(SAVED, saved)
     save(STATE, new_state)
+    ping_daemon()
     # Modes switched by hand (toggles) need no notification: the click is the feedback.
     loud = {m["id"] for m in MANIFEST.get("modes", []) if m.get("notify", True)}
     entering = [m for m in entering if m in loud]
@@ -616,6 +770,8 @@ def main():
     tg = sub.add_parser("toggle", help="switch a toggle mode (e.g. reduce-transparency)")
     tg.add_argument("mode")
     tg.add_argument("to", nargs="?", choices=["on", "off", "toggle"], default="toggle")
+    sub.add_parser("suspend", help="restore every item while the modes stay on (until resume)")
+    sub.add_parser("resume", help="apply the active modes' items again after suspend")
     sub.add_parser("manifest", help="print the manifest")
     wt = sub.add_parser("watch", help="keep the game mode in step with running games")
     wt.add_argument("--interval", type=float, default=3.0)
@@ -640,6 +796,10 @@ def main():
         watch(a.interval)
     elif a.cmd == "_notify":
         notify_wait(a.payload)
+    elif a.cmd in ("suspend", "resume"):
+        with locked():
+            out = suspend() if a.cmd == "suspend" else resume()
+        print(json.dumps(out if a.cmd == "suspend" else {"modes": out.get("modes", [])}))
     elif a.cmd == "toggle":
         kinds = {m["id"]: m.get("kind") for m in MANIFEST.get("modes", [])}
         if kinds.get(a.mode) != "toggle":

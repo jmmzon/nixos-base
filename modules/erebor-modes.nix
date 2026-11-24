@@ -14,6 +14,23 @@
 # ~/.local/state/erebor-modes/state.json (`erebor-modes status --json`).
 { ... }:
 {
+  # Engine tests: suspend/resume, and restores that remove the Noctalia
+  # override they created instead of copying the old value into it.
+  perSystem =
+    { pkgs, ... }:
+    {
+      checks.erebor-modes-unit =
+        pkgs.runCommand "erebor-modes-unit"
+          {
+            nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.tomlkit ])) ];
+          }
+          ''
+            cp -r ${./erebor-modes} src && chmod -R u+w src && cd src
+            python3 -m unittest -v test_erebor_modes.py
+            touch $out
+          '';
+    };
+
   flake.modules.homeManager.erebor-modes =
     {
       config,
@@ -235,7 +252,8 @@
       erebor-modes = pkgs.writeShellApplication {
         name = "erebor-modes";
         runtimeInputs = with pkgs; [
-          python3
+          # tomlkit: removing a Noctalia override keeps settings.toml's comments and order.
+          (python3.withPackages (ps: [ ps.tomlkit ]))
           ddcutil
           power-profiles-daemon
           libnotify
