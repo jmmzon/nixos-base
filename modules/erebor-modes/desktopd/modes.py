@@ -56,7 +56,9 @@ class Memory:
     """The profile power-saver replaced (in the daemon's state dir)."""
 
     def __init__(self, ctx):
-        self.path = os.path.join(ctx.state_dir, "modes.json")
+        base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+        state = ctx.config.get("state") or os.path.join(base, "erebor-desktop")
+        self.path = os.path.join(state, "modes.json")
 
     def get(self) -> str | None:
         try:
@@ -77,10 +79,14 @@ _last: dict = {"modes": None, "items": None}
 _manifest: dict | None = None
 
 
-async def engine(ctx, *args: str) -> dict:
+class EngineError(Exception):
+    pass
+
+
+async def engine(ctx, *args: str):
     r = await ctx.run(ENGINE, *args, timeout=ENGINE_TIMEOUT)
-    if r.returncode != 0:
-        raise RuntimeError(f"erebor-modes {' '.join(args)}: {(r.stderr or r.stdout).strip()}")
+    if not r.ok:
+        raise EngineError(f"erebor-modes {' '.join(args)}: {r.output or f'exit {r.rc}'}")
     return r
 
 
@@ -112,7 +118,6 @@ def changed_event(state: dict) -> dict | None:
     before = _last["modes"] or []
     _last.update(modes=modes, items=items)
     return {
-        "event": "mode-changed",
         "modes": modes,
         "entering": [m for m in modes if m not in before],
         "leaving": [m for m in before if m not in modes],
@@ -123,7 +128,7 @@ def changed_event(state: dict) -> dict | None:
 def emit_if_changed(ctx) -> None:
     ev = changed_event(read_state())
     if ev:
-        ctx.emit(ev)
+        ctx.emit("mode-changed", **ev)
 
 
 async def profile(ctx) -> str:
@@ -131,15 +136,30 @@ async def profile(ctx) -> str:
     return r.stdout.strip()
 
 
+def failing(fn):
+    """An engine failure becomes an error reply, not a traceback."""
+
+    async def wrapper(ctx, req):
+        try:
+            return await fn(ctx, req)
+        except EngineError as e:
+            return {"ok": False, "error": str(e)}
+
+    wrapper.__name__ = fn.__name__
+    return wrapper
+
+
 # ── Commands ────────────────────────────────────────────────────────────────
 
 
 @feature.command("get-modes")
+@failing
 async def get_modes(ctx, req):
     return {"ok": True, "settable": await settable(ctx), **read_state()}
 
 
 @feature.command("set-mode", mutates=True)
+@failing
 async def set_mode(ctx, req):
     name, to = req.get("mode"), req.get("to")
     if to not in ("on", "off"):
@@ -156,13 +176,16 @@ async def set_mode(ctx, req):
         mem = Memory(ctx)
         want = PROFILE_MODES[name]
         cur = await profile(ctx)
+        target = None
         if to == "on" and cur != want:
-            mem.set(cur)
-            await ctx.run(POWERPROFILESCTL, "set", want, timeout=10)
+            target = want
         elif to == "off" and cur == want:
-            back = mem.get() or "balanced"
-            mem.set(None)
-            await ctx.run(POWERPROFILESCTL, "set", back, timeout=10)
+            target = mem.get() or "balanced"
+        if target:
+            r = await ctx.run(POWERPROFILESCTL, "set", target, timeout=10)
+            if not r.ok:
+                return {"ok": False, "error": f"powerprofilesctl set {target}: {r.output}"}
+            mem.set(cur if to == "on" else None)
         await engine(ctx, "sync")
     emit_if_changed(ctx)
     state = read_state()
@@ -170,6 +193,7 @@ async def set_mode(ctx, req):
 
 
 @feature.command("sync-modes", mutates=True)
+@failing
 async def sync_modes(ctx, req):
     await engine(ctx, "sync")
     emit_if_changed(ctx)
@@ -177,6 +201,7 @@ async def sync_modes(ctx, req):
 
 
 @feature.command("suspend-modes", mutates=True)
+@failing
 async def suspend_modes(ctx, req):
     if not read_state().get("modes"):
         return {"ok": True, "modes": [], "restored": [], "kept": []}
@@ -185,6 +210,7 @@ async def suspend_modes(ctx, req):
 
 
 @feature.command("resume-modes", mutates=True)
+@failing
 async def resume_modes(ctx, req):
     r = await engine(ctx, "resume")
     emit_if_changed(ctx)
@@ -210,6 +236,7 @@ feature.snapshot = snapshot
 # ── The power profile, followed without Noctalia's hook ─────────────────────
 
 
+@feature.task
 async def watch_profile(ctx):
     """Sync when power-profiles-daemon's ActiveProfile changes (the Noctalia hook
     can miss it, e.g. while Noctalia restarts); a second sync is harmless."""
@@ -234,31 +261,24 @@ async def watch_profile(ctx):
             proc.kill()
 
 
-feature.task = watch_profile
-
 
 # ── erebor-ctl ──────────────────────────────────────────────────────────────
 
-
-@feature.cli("get-modes", help="print the active modes and their items")
-def _get_modes(p):
-    def fmt(r):
-        out = ["modes: " + (", ".join(r.get("modes") or []) or "none")]
-        for iid, i in (r.get("items") or {}).items():
-            extra = f" ({i['reason']})" if i.get("reason") else ""
-            out.append(f"  {iid}: {i['status']}{extra}")
-        out.append("settable: " + ", ".join(r.get("settable") or {}))
-        return "\n".join(out)
-
-    return fmt
+_get = feature.cli("get-modes", help="print the active modes and their items")
 
 
-@feature.cli("set-mode", help="switch a mode on or off (reduce-transparency, power-saver)")
-def _set_mode(p):
-    p.add_argument("mode")
-    p.add_argument("to", choices=["on", "off"])
+@_get.output
+def _(r):
+    print("modes: " + (", ".join(r.get("modes") or []) or "none"))
+    for iid, i in (r.get("items") or {}).items():
+        extra = f" ({i['reason']})" if i.get("reason") else ""
+        print(f"  {iid}: {i['status']}{extra}")
+    for iid, o in (r.get("offers") or {}).items():
+        print(f"  offer {iid}: {o['action']}")
+    print("settable: " + ", ".join(r.get("settable") or {}))
 
-    def fmt(r):
-        return f"{r['mode']}: {'on' if r['on'] else 'off'}"
 
-    return fmt
+_set = feature.cli("set-mode", help="turn a mode on or off (reduce-transparency, power-saver)")
+_set.arguments(lambda p: (p.add_argument("mode"), p.add_argument("to", choices=["on", "off"])))
+_set.request(lambda a: {"command": "set-mode", "mode": a.mode, "to": a.to})
+_set.output(lambda r: print(f"{r['mode']}: {'on' if r['on'] else 'off'}"))
