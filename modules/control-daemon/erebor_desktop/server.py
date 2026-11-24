@@ -33,6 +33,9 @@ nixos-base pins it, so keep these names stable:
     cli.arguments(lambda p: p.add_argument("name"))              # argparse
     cli.request(lambda a: {"command": "set-mode", "name": a.name})
     cli.output(lambda r: print(r["modes"]))                      # default: the JSON
+    cli.exit_code(lambda r: 0)        # erebor-ctl's exit status for an ok reply
+    cli.offline(lambda args, error, as_json: 2)  # instead of failing when the
+                                      # daemon is unreachable; returns the status
 
 A feature file is a module with a module-level `feature` (or a `features`
 list). The daemon loads its own `features/` package and every `*.py` in the
@@ -61,6 +64,7 @@ Streaming, callers, hang-ups (used by erebor-sysd):
     Daemon(..., accept=lambda conn: ...)          # refuse a connection (conn.peer, conn.data)
     Daemon(..., sock=listen_fds()["control"])     # a socket from systemd
     daemon.dial(path)                             # serve a connection we open (reconnects)
+    daemon.dials[path]                            # DialHealth: connected, since, last_error
 
 A command marked cancel_on_hangup is cancelled when its client closes the
 connection while it runs; others finish. ctx.call returns only the reply.
@@ -127,6 +131,8 @@ class Cli:
         self._arguments: Callable | None = None
         self._request: Callable | None = None
         self._output: Callable | None = None
+        self._exit_code: Callable | None = None
+        self._offline: Callable | None = None
 
     def arguments(self, fn):
         self._arguments = fn
@@ -138,6 +144,14 @@ class Cli:
 
     def output(self, fn):
         self._output = fn
+        return fn
+
+    def exit_code(self, fn):
+        self._exit_code = fn
+        return fn
+
+    def offline(self, fn):
+        self._offline = fn
         return fn
 
     # Used by the client.
@@ -153,6 +167,16 @@ class Cli:
             self._output(reply)
         else:
             print(json.dumps(reply, indent=2))
+
+    def code(self, reply: dict) -> int:
+        return self._exit_code(reply) if self._exit_code else 0
+
+    @property
+    def has_offline(self) -> bool:
+        return self._offline is not None
+
+    def run_offline(self, args, error: str, as_json: bool) -> int:
+        return self._offline(args, error, as_json)
 
 
 class Feature:
@@ -388,6 +412,17 @@ class TaskHealth:
     since: float | None = None
 
 
+@dataclasses.dataclass
+class DialHealth:
+    """An outbound connection (Daemon.dial): up now, since when (wall clock),
+    the last failure to connect and how many connections it has served."""
+
+    connected: bool = False
+    since: float | None = None
+    last_error: str | None = None
+    connections: int = 0
+
+
 class Context:
     """What a feature's code gets: its own store, the daemon's services."""
 
@@ -550,6 +585,7 @@ class Daemon:
         self.subscribers: set[Subscriber] = set()
         self.contexts = {name: Context(self, f) for name, f in self.registry.features.items()}
         self.task_health: dict[str, TaskHealth] = {}
+        self.dials: dict[str, DialHealth] = {}
         self._tasks: list[asyncio.Task] = []
         self._server: asyncio.Server | None = None
         self._inode: int | None = None
@@ -742,17 +778,26 @@ class Daemon:
         """Connect out to path and serve that connection like a client's
         (the uplink to erebor-sysd); reconnect with backoff until stop()."""
 
+        h = self.dials[path] = DialHealth()
+
         async def loop():
             delay = min_delay
             while True:
                 try:
                     reader, writer = await asyncio.open_unix_connection(path, limit=MAX_LINE)
-                except OSError:
+                except OSError as e:
+                    if h.connected or h.since is None:
+                        h.since = time.time()
+                    h.connected, h.last_error = False, f"{type(e).__name__}: {e}"
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, max_delay)
                     continue
+                h.connected, h.since, h.connections = True, time.time(), h.connections + 1
                 since = time.monotonic()
-                await self._connection(reader, writer)
+                try:
+                    await self._connection(reader, writer)
+                finally:
+                    h.connected, h.since, h.last_error = False, time.time(), "connection closed"
                 # A connection the other side ends at once (a refusal) backs off too.
                 if time.monotonic() - since >= 10:
                     delay = min_delay

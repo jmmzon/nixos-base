@@ -167,17 +167,51 @@ class Extras(Base):
             await accepted.put(Client(reader, writer))
 
         hub = await asyncio.start_unix_server(on_accept, hub_path)
+        self.assertNotIn(hub_path, self.d.dials)
         self.d.dial(hub_path, min_delay=0.05)
         c = await asyncio.wait_for(accepted.get(), 5)
+        self.assertTrue(self.d.dials[hub_path].connected)
+        self.assertEqual(self.d.dials[hub_path].connections, 1)
         self.assertEqual(await c.call({"id": 1, "command": "fwd.ping"}), {"ok": True, "got": "fwd.ping", "id": 1})
         c.close()
         c2 = await asyncio.wait_for(accepted.get(), 5)
         self.assertTrue((await c2.call({"command": "subscribe"}))["subscribed"])
         c2.close()
-        hub.close()
+        hub.close()  # also removes the socket: the next dial fails
+        for _ in range(100):
+            h = self.d.dials[hub_path]
+            if not h.connected and h.last_error and "closed" not in h.last_error:
+                break
+            await asyncio.sleep(0.02)
+        self.assertFalse(h.connected)
+        self.assertRegex(h.last_error, "FileNotFoundError|ConnectionRefusedError")
+
+    async def test_dial_reports_an_unreachable_peer(self):
+        await self.start()
+        path = os.path.join(self.dir, "nobody.sock")
+        self.d.dial(path, min_delay=0.05)
+        for _ in range(100):
+            if self.d.dials[path].last_error:
+                break
+            await asyncio.sleep(0.02)
+        h = self.d.dials[path]
+        self.assertFalse(h.connected)
+        self.assertEqual(h.connections, 0)
+        self.assertIn("FileNotFoundError", h.last_error)
 
 
 class Registration(unittest.TestCase):
+    def test_cli_exit_code_and_offline(self):
+        f = srv.Feature("x")
+        c = f.cli("x-status")
+        self.assertEqual(c.code({"ok": True}), 0)
+        self.assertFalse(c.has_offline)
+        c.exit_code(lambda r: 0 if r.get("fine") else 1)
+        c.offline(lambda args, error, as_json: 2 if "down" in error else 3)
+        self.assertEqual((c.code({"fine": True}), c.code({})), (0, 1))
+        self.assertTrue(c.has_offline)
+        self.assertEqual(c.run_offline(None, "daemon down", False), 2)
+
     def test_prefix_clashes(self):
         a, b = srv.Feature("a"), srv.Feature("b")
 
