@@ -751,9 +751,13 @@ class Daemon:
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, max_delay)
                     continue
-                delay = min_delay
+                since = time.monotonic()
                 await self._connection(reader, writer)
-                await asyncio.sleep(min_delay)
+                # A connection the other side ends at once (a refusal) backs off too.
+                if time.monotonic() - since >= 10:
+                    delay = min_delay
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, max_delay)
 
         t = asyncio.create_task(loop())
         self._tasks.append(t)
