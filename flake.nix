@@ -7,7 +7,7 @@
   inputs = {
     # The dashboard (question44/erebor-dashboard), pinned to a commit.
     dashboard = {
-      url = "github:question44/erebor-dashboard/b6eb1e80f1b802ec3dcf035d4301ab376269b1b2";
+      url = "github:question44/erebor-dashboard/ce53307dbc189b6a7eca7130dd4ff4c795c1b694";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     moonshine = {

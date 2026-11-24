@@ -25,6 +25,9 @@
           keepAction =
             a: (my.ambilight.enable || !(lib.elem a ambilightActions)) && (my.nanokvm.enable || a != "wake");
           host = config.networking.hostName;
+          # With erebor-sysd the dashboard's power and Windows actions go through its
+          # policy, and the polkit grants move to sysd's user (control-daemon).
+          viaSysd = my.controlDaemon.enable;
           baseSettings = builtins.fromJSON (
             builtins.replaceStrings
               [ "@host@" "@Host@" "@domain@" "@domainSuffix@" ]
@@ -61,7 +64,13 @@
               UMask = "0077";
             };
           };
-          security.polkit.extraConfig = ''
+          assertions = [
+            {
+              assertion = viaSysd -> lib.any (c: lib.elem user c.users) (lib.attrValues my.controlDaemon.callers);
+              message = "dashboard-control: with my.controlDaemon, ${user} (the dashboard's user) must be one of my.controlDaemon.callers.";
+            }
+          ];
+          security.polkit.extraConfig = lib.mkIf (!viaSysd) ''
             polkit.addRule(function(action, subject) {
               if (subject.user == "${user}" &&
                   action.id == "org.freedesktop.systemd1.manage-units" &&
@@ -133,6 +142,7 @@
               };
               wledUrl = lib.mkIf (my.ambilight.enable && my.ambilight.wledUrl != null) my.ambilight.wledUrl;
               # Profile and Ambilight cards say what power-saver changed (erebor-modes, SYS-122).
+              systemDaemon = lib.mkIf viaSysd "/run/erebor/sysd.sock";
               modesState = lib.mkIf my.modes.enable "${
                 config.users.users.${user}.home
               }/.local/state/erebor-modes/state.json";
