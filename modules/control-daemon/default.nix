@@ -52,6 +52,7 @@ in
             export APPROVAL_RUN=${../approval}/run.py
             export PYTHONPATH=$PWD
             python3 -m pytest -q -p no:cacheprovider tests
+            python3 -m unittest test_server
             touch $out
           '';
     };
