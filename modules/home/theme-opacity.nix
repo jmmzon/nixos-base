@@ -19,7 +19,9 @@
 #   kdeglobals for Qt/KDE) and tells running apps to reload their icons;
 # - on a mode change, remembers Noctalia's surface opacities and Darkly's (Qt
 #   apps: Dolphin...) as they were in the old mode and restores the new mode's.
-#   A mode never seen before gets the old mode's values scaled by
+#   A mode never seen before gets the old mode's values matched to it:
+#   Noctalia's along home/appearance.nix's seeThrough curve (capsules by what
+#   shows through capsule and bar together), Darkly's scaled by
 #   appOpacity.light / appOpacity.dark. So tuning either in the settings
 #   window (or darklyrc) sticks to the mode it was made in.
 #
@@ -151,6 +153,7 @@
           state=${lib.escapeShellArg state}
           variants=${variants}
           ratio=${toString opacity.ratio}
+          see_through=${lib.escapeShellArg opacity.seeThrough}
           reduce_keys=${lib.escapeShellArg reduceKeys}
           darkly_floor=${toString (builtins.floor (rt.opacity * 100 + 0.5))}
           noctalia_keys=(
@@ -320,6 +323,39 @@
             set_live "$1" "$(raised "$2" "$floor")"
           }
 
+          # Noctalia's surface values ("key value" lines in $2) matched to mode $1
+          # along the see-through curve. A capsule sits on the bar, so it keeps
+          # what shows through both: 1 - (1 - capsule) * (1 - bar) is matched,
+          # and the capsule is what gives that over the matched bar.
+          noctalia_derive() {
+            awk -v to="$1" -v curve="$see_through" '
+              function interp(x, xs, ys,   i) {
+                if (x <= xs[1]) return ys[1]
+                for (i = 2; i <= n; i++)
+                  if (x <= xs[i]) return ys[i - 1] + (ys[i] - ys[i - 1]) * (x - xs[i - 1]) / (xs[i] - xs[i - 1])
+                return ys[n]
+              }
+              function match_(x) {
+                if (x < 0) x = 0
+                if (x > 1) x = 1
+                return to == "light" ? interp(x, dk, lt) : interp(x, lt, dk)
+              }
+              BEGIN {
+                n = split(curve, p, " ") / 2
+                for (i = 1; i <= n; i++) { dk[i] = p[2 * i - 1]; lt[i] = p[2 * i] }
+              }
+              NF >= 2 { keys[++m] = $1; val[$1] = $2 }
+              END {
+                bar = "bar.default.background_opacity"; cap = "bar.default.capsule_opacity"
+                for (i = 1; i <= m; i++) out[keys[i]] = match_(val[keys[i]])
+                if ((cap in val) && (bar in val) && out[bar] < 1) {
+                  c = 1 - (1 - match_(1 - (1 - val[cap]) * (1 - val[bar]))) / (1 - out[bar])
+                  out[cap] = c < 0 ? 0 : (c > 1 ? 1 : c)
+                }
+                for (i = 1; i <= m; i++) printf "%s %.3f\n", keys[i], out[keys[i]]
+              }' "$2"
+          }
+
           # Darkly: [Style] *Opacity keys (0-100), read from darklyrc or the base file.
           darkly_read() {
             if $applied && [ -s "$state/reduce-base-darkly" ]; then
@@ -371,13 +407,14 @@
             done
             mv "$saved.tmp" "$saved"
             if [ -s "$state/noctalia-$mode" ]; then
-              source_file="$state/noctalia-$mode"; scale=1
+              awk '{ x = $2; if (x > 1) x = 1; printf "%s %.3f\n", $1, x }' "$state/noctalia-$mode" > "$state/noctalia-next.tmp"
             else
-              source_file="$saved"; scale="$factor"
+              noctalia_derive "$mode" "$saved" > "$state/noctalia-next.tmp"
             fi
             while read -r k v; do
-              set_base "$k" "$(awk -v v="$v" -v f="$scale" 'BEGIN { x = v * f; if (x > 1) x = 1; printf "%.3f", x }')"
-            done < "$source_file"
+              set_base "$k" "$v"
+            done < "$state/noctalia-next.tmp"
+            rm -f "$state/noctalia-next.tmp"
 
             if [ -f "$darklyrc" ]; then
               saved="$state/darkly-$previous"
@@ -412,11 +449,15 @@
           if $reset; then
             rm -f "$state/noctalia-dark" "$state/noctalia-light" "$state/reduce-base" "$state/reduce-base-panel"
             if [ "$mode" = light ]; then
+              : > "$state/noctalia-next.tmp"
               for k in "''${noctalia_keys[@]}"; do
                 v="$(live_value "$k" || true)"
-                [ -n "$v" ] || continue
-                set_live "$k" "$(awk -v v="$v" -v f="$ratio" 'BEGIN { x = v * f; if (x > 1) x = 1; printf "%.3f", x }')"
+                [ -n "$v" ] && printf '%s %s\n' "$k" "$v" >> "$state/noctalia-next.tmp"
               done
+              while read -r k v; do
+                set_live "$k" "$v"
+              done < <(noctalia_derive light "$state/noctalia-next.tmp")
+              rm -f "$state/noctalia-next.tmp"
             fi
             if $applied; then noctalia_reduce_on; fi
             exit 0
