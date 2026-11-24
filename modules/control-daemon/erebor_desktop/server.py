@@ -47,6 +47,24 @@ order. Built in: `subscribe` (then events, {"event": NAME, ...}, follow on
 that connection; commands still work there), `describe` (features, commands,
 events, protocol version).
 
+Streaming, callers, hang-ups (used by erebor-sysd):
+
+    @feature.command("reboot", cancel_on_hangup=True)
+    async def reboot(ctx, req):                   # an async generator: progress lines,
+        yield {"event": "approval-pending"}       # then the reply (the line with "ok")
+        if ctx.connection.peer.uid != 0: ...      # SO_PEERCRED of this request's client
+        yield {"ok": True}
+
+    @feature.prefix("desktop.")                   # every command starting with it
+    async def forward(ctx, req): ...
+
+    Daemon(..., accept=lambda conn: ...)          # refuse a connection (conn.peer, conn.data)
+    Daemon(..., sock=listen_fds()["control"])     # a socket from systemd
+    daemon.dial(path)                             # serve a connection we open (reconnects)
+
+A command marked cancel_on_hangup is cancelled when its client closes the
+connection while it runs; others finish. ctx.call returns only the reply.
+
 Concurrency: commands with mutates=True run under one daemon-wide lock, so
 state changes and their events never interleave. ctx.call from inside such a
 command (or from code holding ctx.locked()) does not take it again. Reads
@@ -72,6 +90,7 @@ import os
 import pkgutil
 import signal
 import socket
+import struct
 import time
 import traceback
 from typing import Any, Awaitable, Callable
@@ -96,6 +115,7 @@ class Command:
     fn: Handler
     mutates: bool
     feature: "Feature"
+    cancel_on_hangup: bool = False
 
 
 class Cli:
@@ -140,6 +160,7 @@ class Feature:
         self.name = name
         self.events = tuple(events)
         self.commands: dict[str, Command] = {}
+        self.prefixes: dict[str, Command] = {}
         self.clis: dict[str, Cli] = {}
         self.starts: list[Callable] = []
         self.tasks: list[Callable] = []
@@ -150,13 +171,26 @@ class Feature:
         self.flat_snapshot = flat_snapshot
         self.source = "?"
 
-    def command(self, name: str, *, mutates: bool = False):
+    def command(self, name: str, *, mutates: bool = False, cancel_on_hangup: bool = False):
         def deco(fn: Handler) -> Handler:
-            if not inspect.iscoroutinefunction(fn):
+            if not (inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn)):
                 raise TypeError(f"{self.name}: command {name} must be async")
             if name in self.commands:
                 raise ValueError(f"{self.name}: command {name} defined twice")
-            self.commands[name] = Command(name, fn, mutates, self)
+            self.commands[name] = Command(name, fn, mutates, self, cancel_on_hangup)
+            return fn
+
+        return deco
+
+    def prefix(self, prefix: str, *, mutates: bool = False, cancel_on_hangup: bool = False):
+        """Handle every command whose name starts with prefix (no exact command)."""
+
+        def deco(fn: Handler) -> Handler:
+            if not (inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn)):
+                raise TypeError(f"{self.name}: prefix {prefix} must be async")
+            if not prefix or prefix in self.prefixes:
+                raise ValueError(f"{self.name}: prefix {prefix!r} empty or defined twice")
+            self.prefixes[prefix] = Command(prefix, fn, mutates, self, cancel_on_hangup)
             return fn
 
         return deco
@@ -184,6 +218,7 @@ class Registry:
     def __init__(self, features: list[Feature]):
         self.features: dict[str, Feature] = {}
         self.commands: dict[str, Command] = {}
+        self.prefixes: dict[str, Command] = {}
         self.events: dict[str, Feature] = {}
         self.clis: dict[str, tuple[Feature, Cli]] = {}
         errors = []
@@ -203,6 +238,12 @@ class Registry:
                     clash("command", name, self.commands[name].feature, f)
                 else:
                     self.commands[name] = c
+            for p, c in f.prefixes.items():
+                other = next((q for q in self.prefixes if q.startswith(p) or p.startswith(q)), None)
+                if other is not None:
+                    clash("prefix", p, self.prefixes[other].feature, f)
+                else:
+                    self.prefixes[p] = c
             for name in f.events:
                 if name == "dropped":
                     errors.append(f"event 'dropped' of {f.name} ({f.source}) is built in")
@@ -217,12 +258,29 @@ class Registry:
                     clash("cli", name, self.clis[name][0], f)
                 else:
                     self.clis[name] = (f, c)
+        for name, c in self.commands.items():
+            for p, pc in self.prefixes.items():
+                if name.startswith(p):
+                    errors.append(f"command {name!r} of {c.feature.name} is under prefix {p!r} of {pc.feature.name}")
         if errors:
             raise ValueError("feature conflicts:\n  " + "\n  ".join(errors))
 
+    def lookup(self, name) -> Command | None:
+        c = self.commands.get(name)
+        if c is None and isinstance(name, str):
+            for p in sorted(self.prefixes, key=len, reverse=True):
+                if name.startswith(p):
+                    return self.prefixes[p]
+        return c
+
     def describe(self) -> dict:
         return {
-            name: {"commands": sorted(f.commands), "events": list(f.events), "source": f.source}
+            name: {
+                "commands": sorted(f.commands),
+                "events": list(f.events),
+                "source": f.source,
+                **({"prefixes": sorted(f.prefixes)} if f.prefixes else {}),
+            }
             for name, f in self.features.items()
         }
 
@@ -282,6 +340,44 @@ class Result:
 
 
 _holding = contextvars.ContextVar("erebor_desktop_holding_lock", default=False)
+SO_PEERGROUPS = getattr(socket, "SO_PEERGROUPS", 59)
+
+
+@dataclasses.dataclass(frozen=True)
+class Peer:
+    pid: int
+    uid: int
+    gids: tuple[int, ...]
+
+
+def peer_of(sock: socket.socket | None) -> Peer | None:
+    """The other end's credentials (SO_PEERCRED, SO_PEERGROUPS), or None."""
+    if sock is None or sock.family != socket.AF_UNIX:
+        return None
+    try:
+        pid, uid, gid = struct.unpack("3i", sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    except OSError:
+        return None
+    try:
+        raw = sock.getsockopt(socket.SOL_SOCKET, SO_PEERGROUPS, 4 * 256)
+        gids = struct.unpack(f"{len(raw) // 4}I", raw)
+    except OSError:
+        gids = ()
+    return Peer(pid, uid, (gid, *gids))
+
+
+@dataclasses.dataclass(eq=False)
+class Connection:
+    """The client a request came from (ctx.connection inside a command)."""
+
+    peer: Peer | None
+    data: dict = dataclasses.field(default_factory=dict)
+    hangup: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+
+
+_connection: contextvars.ContextVar[Connection | None] = contextvars.ContextVar(
+    "erebor_desktop_connection", default=None
+)
 
 
 @dataclasses.dataclass
@@ -300,7 +396,7 @@ class Context:
         self.feature = feature
         self.config = daemon.config
         self.store: dict[str, Any] = {}
-        self.log = logging.getLogger(f"erebor-desktopd.{feature.name}")
+        self.log = logging.getLogger(f"{getattr(daemon, 'name', 'erebor-desktopd')}.{feature.name}")
 
     def emit(self, event: str, **fields) -> None:
         if event not in self.feature.events:
@@ -333,6 +429,11 @@ class Context:
 
     def has(self, command: str) -> bool:
         return command in self.daemon.registry.commands
+
+    @property
+    def connection(self) -> Connection | None:
+        """The client of the request being handled (None in tasks and ctx.call)."""
+        return _connection.get()
 
     async def call(self, command: str, req: dict | None = None) -> dict:
         """Another feature's command, as a client would send it (minus the
@@ -431,6 +532,9 @@ class Daemon:
         drain_timeout: float = 10,
         backoff: tuple[float, float, float] = (1, 60, 300),
         write_buffer_high: int | None = None,
+        name: str = "erebor-desktopd",
+        accept: Callable[[Connection], bool] | None = None,
+        sock: socket.socket | None = None,
     ):
         self.registry = Registry(features)
         self.socket_path = socket_path
@@ -439,6 +543,9 @@ class Daemon:
         self.drain_timeout = drain_timeout
         self.backoff = backoff  # first delay, max delay, healthy-after seconds
         self.write_buffer_high = write_buffer_high
+        self.name = name
+        self.accept = accept
+        self.sock = sock  # from systemd: not claimed, not removed on stop
         self.lock = asyncio.Lock()
         self.subscribers: set[Subscriber] = set()
         self.contexts = {name: Context(self, f) for name, f in self.registry.features.items()}
@@ -461,18 +568,35 @@ class Daemon:
             finally:
                 _holding.reset(token)
 
-    async def dispatch(self, req: dict) -> dict:
+    async def dispatch(self, req: dict, progress: Callable[[dict], Awaitable[None]] | None = None) -> dict:
+        """Run a command and return its reply; a streaming command's progress
+        lines go to progress (dropped without one)."""
         name = req.get("command")
-        c = self.registry.commands.get(name)
+        c = self.registry.lookup(name)
         if c is None:
             return {"ok": False, "error": f"unknown command {name!r}"}
         ctx = self.contexts[c.feature.name]
+
+        async def run():
+            if not inspect.isasyncgenfunction(c.fn):
+                return await c.fn(ctx, req)
+            final = None
+            async for item in c.fn(ctx, req):
+                if isinstance(item, dict) and "ok" in item:
+                    final = item
+                    break
+                if progress is not None and isinstance(item, dict):
+                    await progress(item)
+            return final if final is not None else {"ok": False, "error": f"{name} gave no reply"}
+
         try:
             if c.mutates:
                 async with self.locked():
-                    reply = await c.fn(ctx, req)
+                    reply = await run()
             else:
-                reply = await c.fn(ctx, req)
+                reply = await run()
+        except asyncio.CancelledError:
+            raise
         except Exception as e:  # keep serving
             log.error("%s failed:\n%s", name, traceback.format_exc())
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
@@ -515,10 +639,16 @@ class Daemon:
 
     # Connections
     async def _connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        conn = Connection(peer_of(writer.get_extra_info("socket")))
+        if self.accept is not None and not self.accept(conn):
+            writer.close()
+            return
+        _connection.set(conn)  # this task and the requests it starts
         self._connections.add(asyncio.current_task())
         if self.write_buffer_high is not None:
             writer.transport.set_write_buffer_limits(high=self.write_buffer_high)
         sub: Subscriber | None = None
+        next_read: asyncio.Task | None = None
 
         async def send(obj: dict) -> None:
             line = (json.dumps(obj) + "\n").encode()
@@ -530,11 +660,15 @@ class Daemon:
 
         try:
             while True:
+                if next_read is None:
+                    next_read = asyncio.create_task(reader.readline())
                 try:
-                    raw = await reader.readline()
+                    raw = await next_read
                 except (ValueError, asyncio.LimitOverrunError):
                     await send({"ok": False, "error": f"request longer than {MAX_LINE} bytes"})
                     break
+                finally:
+                    next_read = None
                 if not raw:
                     break
                 if sub and sub.dropped:
@@ -546,6 +680,7 @@ class Daemon:
                 except ValueError:
                     await send({"ok": False, "error": "bad JSON (want one object per line)"})
                     continue
+                tag = (lambda obj: {**obj, "id": req["id"]}) if "id" in req else (lambda obj: obj)
                 if req.get("command") == "subscribe":
                     if sub:
                         reply = {"ok": True, "subscribed": True, "already": True}
@@ -565,15 +700,32 @@ class Daemon:
                 elif req.get("command") == "describe":
                     reply = {"ok": True, "protocol": PROTOCOL, "features": self.registry.describe()}
                 else:
-                    reply = await self.dispatch(req)
-                if "id" in req:
-                    reply = {**reply, "id": req["id"]}
-                await send(reply)
+                    # Read ahead while the command runs, so a hang-up is seen at once.
+                    c = self.registry.lookup(req.get("command"))
+                    work = asyncio.create_task(self.dispatch(req, lambda line: send(tag(line))))
+                    next_read = asyncio.create_task(reader.readline())
+                    await asyncio.wait({work, next_read}, return_when=asyncio.FIRST_COMPLETED)
+                    if next_read.done() and not work.done():
+                        if next_read.exception() is not None or next_read.result() == b"":
+                            conn.hangup.set()
+                            if c is not None and c.cancel_on_hangup:
+                                work.cancel()
+                    try:
+                        reply = await work
+                    except asyncio.CancelledError:
+                        if conn.hangup.is_set() and not asyncio.current_task().cancelling():
+                            log.info("%s cancelled: the client hung up", req.get("command"))
+                            break
+                        raise
+                await send(tag(reply))
         except (TimeoutError, ConnectionError, OSError):
             pass
         except asyncio.CancelledError:
             raise
         finally:
+            conn.hangup.set()
+            if next_read is not None:
+                next_read.cancel()
             self._connections.discard(asyncio.current_task())
             if sub:
                 # Let queued lines (replies, events) go out before closing.
@@ -585,6 +737,27 @@ class Daemon:
                 if sub.task:
                     sub.task.cancel()
             writer.close()
+
+    def dial(self, path: str, *, min_delay: float = 1, max_delay: float = 30) -> asyncio.Task:
+        """Connect out to path and serve that connection like a client's
+        (the uplink to erebor-sysd); reconnect with backoff until stop()."""
+
+        async def loop():
+            delay = min_delay
+            while True:
+                try:
+                    reader, writer = await asyncio.open_unix_connection(path, limit=MAX_LINE)
+                except OSError:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, max_delay)
+                    continue
+                delay = min_delay
+                await self._connection(reader, writer)
+                await asyncio.sleep(min_delay)
+
+        t = asyncio.create_task(loop())
+        self._tasks.append(t)
+        return t
 
     async def _flush(self, sub: Subscriber) -> None:
         while sub.lines and sub.task and not sub.task.done():
@@ -627,7 +800,7 @@ class Daemon:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(self.socket_path)
         else:
-            raise SystemExit(f"erebor-desktopd: already running on {self.socket_path}")
+            raise SystemExit(f"{self.name}: already running on {self.socket_path}")
         finally:
             s.close()
 
@@ -637,13 +810,19 @@ class Daemon:
                 r = fn(self.contexts[name])
                 if inspect.isawaitable(r):
                     await r
-        self._claim_socket()
-        old = os.umask(0o177)  # the socket is 0600 from the start
-        try:
-            self._server = await asyncio.start_unix_server(self._connection, self.socket_path, limit=MAX_LINE)
-        finally:
-            os.umask(old)
-        self._inode = os.stat(self.socket_path).st_ino
+        if self.sock is not None:
+            # systemd owns it: never unlinked here.
+            self._server = await asyncio.start_unix_server(
+                self._connection, sock=self.sock, limit=MAX_LINE, cleanup_socket=False
+            )
+        else:
+            self._claim_socket()
+            old = os.umask(0o177)  # the socket is 0600 from the start
+            try:
+                self._server = await asyncio.start_unix_server(self._connection, self.socket_path, limit=MAX_LINE)
+            finally:
+                os.umask(old)
+            self._inode = os.stat(self.socket_path).st_ino
         for f in self.registry.features.values():
             for fn in f.tasks:
                 self._tasks.append(asyncio.create_task(self._supervise(f, fn)))
@@ -657,7 +836,7 @@ class Daemon:
             s.drop("shutdown", quiet=True, tell=False)
         await asyncio.gather(*self._tasks, *self._connections, return_exceptions=True)
         with contextlib.suppress(FileNotFoundError):
-            if os.stat(self.socket_path).st_ino == self._inode:
+            if self._inode is not None and os.stat(self.socket_path).st_ino == self._inode:
                 os.unlink(self.socket_path)
 
     async def serve_forever(self) -> None:
@@ -670,6 +849,20 @@ class Daemon:
         await stop.wait()
         sd_notify("STOPPING=1")
         await self.stop()
+
+
+def listen_fds() -> dict[str, socket.socket]:
+    """systemd's sockets by FileDescriptorName (empty without activation)."""
+    if os.environ.get("LISTEN_PID") != str(os.getpid()):
+        return {}
+    n = int(os.environ.get("LISTEN_FDS", "0"))
+    names = os.environ.get("LISTEN_FDNAMES", "").split(":")
+    out = {}
+    for i in range(n):
+        out[names[i] if i < len(names) and names[i] else str(i)] = socket.socket(fileno=3 + i)
+    for k in ("LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"):
+        os.environ.pop(k, None)
+    return out
 
 
 def sd_notify(state: str) -> None:
