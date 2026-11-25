@@ -11,11 +11,12 @@ window-padding-y = 9
 window-padding-balance = true
 
 # Quick (drop-down) terminal, owned by the ghostty-quick-terminal user service
-# (modules/home/ghostty.nix): full width, 40% tall, on the output the
-# compositor picks (Umbriel: the one under the pointer). Clicking another
-# window hides it; its tabs live until the service restarts.
-quick-terminal-position = top
-quick-terminal-size = 40%
+# (modules/home/ghostty.nix): rises from the bottom, half the output tall and
+# 80% wide, centred (clear of a side dock), on the output the compositor picks
+# (Umbriel: the one under the pointer). Clicking another window hides it; its
+# tabs live until the service restarts.
+quick-terminal-position = bottom
+quick-terminal-size = 50%,80%
 quick-terminal-autohide = true
 quick-terminal-keyboard-interactivity = on-demand
 gtk-quick-terminal-namespace = ghostty-quick-terminal

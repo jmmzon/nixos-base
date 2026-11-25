@@ -3,10 +3,13 @@
 # with a fixed theme. Ghostty itself comes from the system or a Homebrew cask.
 #
 # On Linux a second, background Ghostty instance with its own class owns the
-# quake-style quick terminal (a layer-shell surface dropping from the top), so
-# ordinary Ghostty windows keep their own processes. Toggle it with
-#   ghostty +toggle-quick-terminal --class=com.mitchellh.ghostty.quick
-# (bound in the compositor); D-Bus activation starts the service when needed.
+# quake-style quick terminal (a layer-shell surface), so ordinary Ghostty
+# windows keep their own processes. Toggle it by calling its GAction (bound in
+# the compositor); D-Bus activation starts the service when needed:
+#   busctl --user call com.mitchellh.ghostty.quick /com/mitchellh/ghostty/quick \
+#     org.gtk.Actions Activate 'sava{sv}' toggle-quick-terminal 0 0
+# Ghostty 1.4.0's `+toggle-quick-terminal --class=…` ignores --class and
+# toggles the default instance instead.
 {
   flake.modules.homeManager.ghostty =
     {
@@ -59,7 +62,7 @@
             Install.WantedBy = [ "graphical-session.target" ];
           };
 
-          # Lets `ghostty +toggle-quick-terminal --class=…` start the service.
+          # Lets the toggle above start the service on demand.
           xdg.dataFile."dbus-1/services/${quickClass}.service".text = ''
             [D-BUS Service]
             Name=${quickClass}
