@@ -39,6 +39,7 @@ in
       t3code
       cockpit
       timemachine
+      media-library
       desktop
       # Formerly added to every host by flake.nix.
       moonshine

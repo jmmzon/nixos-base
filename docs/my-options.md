@@ -2005,6 +2005,48 @@ list of string
 
 
 
+## my\.mediaLibrary
+
+
+
+Library folders per XDG folder name: each source appears at
+~/\<kind>/Library/\<name> (a bind mount) and all sources of a kind
+together at ~/\<kind>/Library/All (mergerfs)\.
+
+
+
+*Type:*
+attribute set of attribute set of string
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  Music = {
+    Media = "/srv/external/media/Music";
+  };
+  Videos = {
+    Backup = "/srv/external/backup/Videos";
+    Media = "/srv/external/media/Videos";
+  };
+}
+```
+
+*Declared by:*
+ - [modules/media-library\.nix](../modules/media-library.nix)
+
+
+
 ## my\.modes\.enable
 
 
@@ -2805,8 +2847,6 @@ null
 
 ## my\.shaderWallpaper\.enable
 
-
-
 Whether to enable the live ` shader: ` wallpaper in Noctalia (Shadertoy-style GLSL shaders, pause
 behind windows, the noctalia-shader-thumbnail tool)\. Needs my\.sequoiaWallpaper,
 whose patch it is stacked on\.
@@ -2838,6 +2878,8 @@ true
 
 
 ## my\.shaderWallpaper\.kdeLibrary
+
+
 
 Whether to enable KDE Shader Wallpaper’s shader library (pinned) in share/noctalia/shaders/kde, for
 the shader wallpaper and its picker plugin\.
