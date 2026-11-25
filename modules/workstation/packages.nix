@@ -130,7 +130,11 @@
     in
     {
       # The terminals' and Zed's font (Ghostty, Monstar, Zed read its family name).
-      fonts.packages = [ (pkgs.callPackage ../../packages/xenon-code { }) ];
+      fonts.packages = [
+        (pkgs.callPackage ../../packages/xenon-code { })
+        # Document fonts for LaTeX (fontspec) and other apps.
+        pkgs.paratype-pt-sans
+      ];
       # kio-admin's privileged helper is a D-Bus system service.
       services.dbus.packages = [ pkgs.kdePackages.kio-admin ];
 
@@ -318,6 +322,8 @@
           btop
           tux-manager
           speedcrunch
+          # Complete TeX Live (xelatex, lualatex, latexmk, every CTAN package).
+          texliveFull
           fastfetch
           fortune
           cowsay
