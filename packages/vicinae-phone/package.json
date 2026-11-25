@@ -1,0 +1,46 @@
+{
+	"$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
+	"name": "phone",
+	"title": "Phone",
+	"description": "Call contacts through the phone connected over Bluetooth (the `call` command)",
+	"categories": ["Communication"],
+	"license": "MIT",
+	"platforms": ["Linux"],
+	"author": "nixos-base",
+	"icon": "extension_icon.png",
+	"commands": [
+		{
+			"name": "call-contact",
+			"title": "Call Contact",
+			"subtitle": "Phone",
+			"description": "Search the contacts synced by KDE Connect and call one, or call a typed number",
+			"mode": "view"
+		},
+		{
+			"name": "hang-up",
+			"title": "Hang Up Call",
+			"subtitle": "Phone",
+			"description": "End the current phone call",
+			"mode": "no-view"
+		},
+		{
+			"name": "answer",
+			"title": "Answer Call",
+			"subtitle": "Phone",
+			"description": "Answer the ringing phone call",
+			"mode": "no-view"
+		}
+	],
+	"scripts": {
+		"build": "vici build",
+		"dev": "vici develop"
+	},
+	"dependencies": {
+		"@vicinae/api": "^0.23.2"
+	},
+	"devDependencies": {
+		"@types/node": "^26.1.1",
+		"@types/react": "^19.2.18",
+		"typescript": "^5.9.2"
+	}
+}

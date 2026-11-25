@@ -1,0 +1,36 @@
+# Phone calls through a paired phone (my.bluetooth.phoneCalls): a bar button
+# shown while the phone is connected as hands-free, and a panel that searches
+# the contacts KDE Connect syncs, dials, answers, hangs up and sends keypad
+# tones. Everything goes through the `call` command.
+
+id = "janzon/phone"
+name = "Phone"
+version = "1.0.0"
+plugin_api = 43
+author = "janzon"
+license = "MIT"
+tags = ["bar"]
+icon = "phone"
+description = "Call contacts through the phone connected over Bluetooth."
+
+# Polls `call state` every 2 s and opens the panel when a call starts ringing.
+[[service]]
+id = "phone-state"
+entry = "phone_service.luau"
+
+# Hidden while no phone is connected; lit during a call, ringing glyph while
+# a call comes in. Click opens the panel; right-click hangs up.
+[[widget]]
+id = "phone"
+entry = "phone_widget.luau"
+
+[[panel]]
+id = "phone-panel"
+entry = "phone_panel.luau"
+width = 360
+height = "content"
+max_height = 480
+placement = "attached"
+position = "auto"
+open_near_click = true
+keyboard_focus = "on_demand"

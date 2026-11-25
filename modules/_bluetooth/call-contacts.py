@@ -6,6 +6,8 @@ prints one line per (contact, number) whose name contains every word of the
 query, ignoring case and accents: name, label and number, tab-separated.
 With no query it prints every contact. A number stored twice for the same
 contact (local and international form) is printed once.
+`call-contacts --number NUMBER` prints the name of the contact with that
+number (nothing when none has it).
 """
 
 import os
@@ -88,6 +90,13 @@ def contacts(root):
 
 def main():
     data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    if sys.argv[1:2] == ["--number"]:
+        wanted = sys.argv[2] if len(sys.argv) > 2 else ""
+        for name, numbers in contacts(data / "kpeoplevcard"):
+            if any(same_number(wanted, n) for _, n in numbers):
+                print(name)
+                return
+        return
     words = fold(" ".join(sys.argv[1:])).split()
     seen = []  # (folded name, number) already printed, across devices
     rows = []

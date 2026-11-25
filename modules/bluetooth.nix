@@ -9,7 +9,12 @@
 # linked to the default speakers and microphone like any other stream. The
 # machine does not offer itself as an A2DP/LE Audio sink then: a phone that
 # connected for media would hold the media profile instead of the call one.
-{ ... }:
+#
+# The same option adds the UIs on `call`: the Noctalia plugin janzon/phone
+# (home/noctalia/plugins/phone: bar button, contacts panel, in-call controls,
+# a pop-up for incoming calls) and the Vicinae extension packages/vicinae-phone
+# (Call Contact, Hang Up Call, Answer Call).
+{ inputs, ... }:
 {
   flake.modules.nixos.bluetooth =
     {
@@ -59,6 +64,8 @@
                  call hangup        end every call
                  call tones DIGITS  send DTMF tones in the active call
                  call status        the connected phone and its calls
+                 call state         the same for scripts: "phone ADDRESS", then
+                                    "call PATH STATE NUMBER CONTACT" lines (tabs)
           EOF
           }
 
@@ -155,6 +162,18 @@
                 echo "  $state ''${number:-unknown}''${name:+ ($name)}"
               done
               ;;
+            state)
+              for ag in $(gateways); do
+                addr=$(busctl --user --json=short get-property "$svc" "$ag" "$ag_if" Address |
+                  jq -r '.data')
+                printf 'phone\t%s\n' "$addr"
+              done
+              calls | while IFS=$'\t' read -r path state number _; do
+                contact=""
+                [ -z "$number" ] || contact=$(call-contacts --number "$number" || true)
+                printf 'call\t%s\t%s\t%s\t%s\n' "$path" "$state" "$number" "$contact"
+              done
+              ;;
             answer)
               path=$(calls | awk -F '\t' '$2 == "incoming" || $2 == "waiting" { print $1; exit }')
               [ -n "$path" ] || die "no incoming call"
@@ -194,7 +213,10 @@
           };
         }
         (lib.mkIf cfg.phoneCalls.enable {
-          environment.systemPackages = [ call ];
+          environment.systemPackages = [
+            call
+            contacts # the Noctalia and Vicinae phone UIs read it directly
+          ];
           services.pipewire.wireplumber.extraConfig."51-bluetooth-phone-calls" = {
             "monitor.bluez.properties" = {
               "bluez5.hfphsp-backend" = "native";
@@ -245,7 +267,19 @@
     );
 
   flake.modules.homeManager.bluetooth =
-    { lib, osConfig, ... }:
+    {
+      lib,
+      osConfig,
+      pkgs,
+      ...
+    }:
+    let
+      phoneExtension = inputs.vicinae.lib.${pkgs.stdenv.hostPlatform.system}.mkVicinaeExtension {
+        pname = "phone";
+        version = "1.0.0";
+        src = ../packages/vicinae-phone;
+      };
+    in
     lib.mkIf osConfig.my.bluetooth.phoneCalls.enable {
       xdg.desktopEntries.phone-call = {
         name = "Phone call";
@@ -256,5 +290,9 @@
         mimeType = [ "x-scheme-handler/tel" ];
       };
       xdg.mimeApps.defaultApplications."x-scheme-handler/tel" = [ "phone-call.desktop" ];
+      # Noctalia bar button and panel (janzon/phone); enabled in the shell
+      # config's plugins list, placed by the bar layout.
+      xdg.dataFile."noctalia/plugins/phone".source = ../home/noctalia/plugins/phone;
+      xdg.dataFile."vicinae/extensions/phone".source = phoneExtension;
     };
 }
