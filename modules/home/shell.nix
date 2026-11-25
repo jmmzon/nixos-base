@@ -45,7 +45,23 @@
               mkdir -p -- $argv[1]; and cd -- $argv[1]
             '';
           };
+          # File names as OSC 8 hyperlinks (Ctrl+click in Monstar or Ghostty).
+          # eza's own --hyperlink=auto never detects these terminals, so links
+          # are forced only when the output is a terminal, not a pipe.
+          functions.eza = {
+            description = "eza with file hyperlinks on a terminal";
+            wraps = "eza";
+            body = ''
+              if isatty stdout
+                command eza --hyperlink=always $argv
+              else
+                command eza $argv
+              end
+            '';
+          };
           shellAliases = {
+            fd = "fd --hyperlink=auto";
+            rg = "rg --hyperlink-format=default";
             cat = "bat --style=plain --paging=never";
             catn = "bat --style=numbers --paging=never";
             t3pair = "t3 pair --base-dir ${config.home.homeDirectory}/.t3/server";
