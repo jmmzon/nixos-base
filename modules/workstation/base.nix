@@ -129,6 +129,8 @@
       };
 
       programs.fish.enable = true;
+      # macOS-style `open` in bash; fish ships its own `open` function.
+      programs.bash.shellAliases.open = "xdg-open";
       # NixOS sources the system environment into fish through fenv, which
       # copies every variable bash knows. Names fish rejects (the Claude app
       # exports SENTRY-TRACE) made each new shell print a `set` error; skip them.
