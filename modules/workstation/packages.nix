@@ -312,6 +312,7 @@
           ripgrep
           btop
           tux-manager
+          thunderbird
           speedcrunch
           # Complete TeX Live (xelatex, lualatex, latexmk, every CTAN package).
           texliveFull
