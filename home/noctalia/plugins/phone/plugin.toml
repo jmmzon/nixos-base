@@ -24,12 +24,13 @@ entry = "phone_service.luau"
 id = "phone"
 entry = "phone_widget.luau"
 
+# Fixed height: a ui.scroll in a height = "content" panel grows to its whole
+# content and never scrolls, so the list fills the space left instead.
 [[panel]]
 id = "phone-panel"
 entry = "phone_panel.luau"
 width = 360
-height = "content"
-max_height = 480
+height = 480
 placement = "attached"
 position = "auto"
 open_near_click = true

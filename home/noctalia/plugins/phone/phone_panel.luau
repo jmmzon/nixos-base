@@ -4,7 +4,7 @@
 -- KDE Connect syncs (name or number); a click dials.
 local phone = require("./phone_lib.luau")
 
-local MAX_ROWS = 60
+local MAX_ROWS = 200
 
 local query = ""
 local rows = {}
@@ -131,7 +131,7 @@ local function searchView()
   end
   return {
     ui.input({ key = "search", value = query, placeholder = "Name or number", focus = true,
-      submitOnEnter = true, flexGrow = 1,
+      submitOnEnter = true,
       onChange = function(text)
         query = tostring(text or "")
         search()
@@ -145,7 +145,7 @@ local function searchView()
           dial(rows[1].number)
         end
       end }),
-    ui.scroll({ height = 320, gap = 2 }, list),
+    ui.scroll({ flexGrow = 1, gap = 2 }, list),
   }
 end
 
@@ -175,7 +175,7 @@ render = function()
       table.insert(body, node)
     end
   end
-  panel.render(ui.column({ gap = 12, padding = 16 }, body))
+  panel.render(ui.column({ gap = 12, padding = 16, flexGrow = 1 }, body))
 end
 
 noctalia.state.watch("phone", function(state)
