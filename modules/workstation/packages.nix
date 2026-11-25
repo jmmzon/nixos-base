@@ -55,20 +55,11 @@
           builtins.readFile ../../home/strata/terminal
         );
       };
-      # Strata with the terminal-sync patch (~/src/strata-sync, branch
-      # terminal-sync): it publishes the focused window's folder and takes a
-      # sync-navigate action; branch terminal-sync also carries the footer
-      # free-space patch. Strata is built from source because of them.
+      # Strata from the fork's erebor branch (docs/forks.md): terminal sync
+      # (publishes the focused window's folder, takes a sync-navigate action),
+      # the footer's free space, and the embedded terminal on libghostty-vt.
       # my.strata.override lets a host add its own patches on top.
-      strataUnwrapped = config.my.strata.override (
-        inputs.strata.packages.${system}.default.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ [
-            ../../patches/strata-terminal-sync.patch
-            # The footer also shows the free space of the folder's filesystem.
-            ../../patches/strata-footer-free-space.patch
-          ];
-        })
-      );
+      strataUnwrapped = config.my.strata.override inputs.strata.packages.${system}.default;
       strata = pkgs.symlinkJoin {
         name = "strata-${strataUnwrapped.version or "wrapped"}";
         paths = [ strataUnwrapped ];

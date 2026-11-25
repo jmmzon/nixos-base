@@ -1,7 +1,7 @@
 # Forked inputs
 
-Umbriel, Noctalia and the Noctalia greeter come from public forks
-(`github:question44/{umbriel,noctalia,noctalia-greeter}`). Local changes are
+Umbriel, Noctalia, the Noctalia greeter and Strata come from public forks
+(`github:question44/{umbriel,noctalia,noctalia-greeter,strata}`). Local changes are
 commits on each fork's `erebor` branch, on top of the upstream revision; the
 flake input pins a commit of that branch.
 
@@ -22,6 +22,12 @@ subject) so a conflict points at one feature. Before every push, run
 personal data, as for this repository. Rebasing rewrites the branch: before the
 force push, tag the old head (`git tag erebor-<date> && git push fork
 erebor-<date>`) so older lock files still fetch.
+
+Strata's fork changes `Cargo.lock` and `package.nix`, which an
+`overrideAttrs` patch cannot do (the vendored crates come from the unpatched
+lock file). Its flake also pins Ghostty for the libghostty-vt build; that input
+keeps its own nixpkgs and Zig, so it does not follow ours. In the Strata clone
+the upstream remote is `origin`, not `upstream`.
 
 A one-off patch on top can still go in `programs.noctalia.patches` or
 `programs.noctalia.greeterPatches`.

@@ -15,7 +15,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     strata = {
-      url = "github:lgse/strata/d4679c61d31c58bc3c8af3d6241d8514b6d0e9c1";
+      url = "github:question44/strata/c1863ae7b9e96c92bd1a6c6274019e7813fe64de";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     monstar.url = "github:rockorager/monstar/860f55d7000692e98a37b814d0eebc3575fede73";
