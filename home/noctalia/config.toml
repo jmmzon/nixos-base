@@ -683,7 +683,7 @@ enabled = [
 
     [[plugins.source]]
     kind = "git"
-    location = "https://github.com/question44/spotify-media-niri"
+    location = "https://github.com/jmmzon/spotify-media-niri"
     name = "spotify-media-niri"
 
 [shell]

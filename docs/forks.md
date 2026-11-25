@@ -1,7 +1,7 @@
 # Forked inputs
 
 Umbriel, Noctalia, the Noctalia greeter and Strata come from public forks
-(`github:question44/{umbriel,noctalia,noctalia-greeter,strata}`). Local changes are
+(`github:jmmzon/{umbriel,noctalia,noctalia-greeter,strata}`). Local changes are
 commits on each fork's `erebor` branch, on top of the upstream revision; the
 flake input pins a commit of that branch.
 

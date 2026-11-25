@@ -85,7 +85,7 @@ consumer, in the same dendritic layout:
 # flake.nix
 {
   inputs = {
-    nixos-base.url = "github:question44/nixos-base";
+    nixos-base.url = "github:jmmzon/nixos-base";
     # Follow the base's pins, so you build what its checks evaluate.
     nixpkgs.follows = "nixos-base/nixpkgs";
     flake-parts.follows = "nixos-base/flake-parts";

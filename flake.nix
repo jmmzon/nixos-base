@@ -5,9 +5,9 @@
   # nixpkgs and home-manager. Bump a pin deliberately: change its revision,
   # review the upstream changes, then build and compare the hosts that use it.
   inputs = {
-    # The dashboard (question44/erebor-dashboard), pinned to a commit.
+    # The dashboard (jmmzon/erebor-dashboard), pinned to a commit.
     dashboard = {
-      url = "github:question44/erebor-dashboard/ce53307dbc189b6a7eca7130dd4ff4c795c1b694";
+      url = "github:jmmzon/erebor-dashboard/ce53307dbc189b6a7eca7130dd4ff4c795c1b694";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     moonshine = {
@@ -15,18 +15,18 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     strata = {
-      url = "github:question44/strata/c1863ae7b9e96c92bd1a6c6274019e7813fe64de";
+      url = "github:jmmzon/strata/c1863ae7b9e96c92bd1a6c6274019e7813fe64de";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     monstar.url = "github:rockorager/monstar/860f55d7000692e98a37b814d0eebc3575fede73";
     claude-desktop-nix.url = "github:tomsch/claude-desktop-nix/cec2c23d3f04accc5adeb93e94b02e4fd603510b";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    noctalia.url = "github:question44/noctalia/4193c82eeede969c9e918b788a2eb7f676e33f1e";
+    noctalia.url = "github:jmmzon/noctalia/4193c82eeede969c9e918b788a2eb7f676e33f1e";
     noctalia-greeter = {
-      url = "github:question44/noctalia-greeter/3f4ba2cccd89792878338353f884d890b8d34c04";
+      url = "github:jmmzon/noctalia-greeter/3f4ba2cccd89792878338353f884d890b8d34c04";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    umbriel.url = "github:question44/umbriel/40cc240dbc511df6a6e65e5883f12d557f443ba8";
+    umbriel.url = "github:jmmzon/umbriel/40cc240dbc511df6a6e65e5883f12d557f443ba8";
     millennium = {
       url = "github:SteamClientHomebrew/Millennium/6522c24e8bd3de41a7601ceb4e78a619930f1704?dir=packages/nix";
       inputs.nixpkgs.follows = "nixpkgs";

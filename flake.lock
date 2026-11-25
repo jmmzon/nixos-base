@@ -64,13 +64,13 @@
       "locked": {
         "lastModified": 1795523022,
         "narHash": "sha256-6qgsfFQVLlMDAd0smJJxt4GAxWtxANv7dS0d74bNmh8=",
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "erebor-dashboard",
         "rev": "ce53307dbc189b6a7eca7130dd4ff4c795c1b694",
         "type": "github"
       },
       "original": {
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "erebor-dashboard",
         "rev": "ce53307dbc189b6a7eca7130dd4ff4c795c1b694",
         "type": "github"
@@ -503,13 +503,13 @@
       "locked": {
         "lastModified": 1795414444,
         "narHash": "sha256-6p2rHhYcE8wWbB70/ysJDwrQ0tJoP6+wSmYCxyDKOcM=",
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "noctalia",
         "rev": "4193c82eeede969c9e918b788a2eb7f676e33f1e",
         "type": "github"
       },
       "original": {
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "noctalia",
         "rev": "4193c82eeede969c9e918b788a2eb7f676e33f1e",
         "type": "github"
@@ -524,13 +524,13 @@
       "locked": {
         "lastModified": 1795599355,
         "narHash": "sha256-ZaXLYckT4J9vCQQb+LdnJ2TfDuur5V5/sNo6EVX+ly0=",
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "noctalia-greeter",
         "rev": "3f4ba2cccd89792878338353f884d890b8d34c04",
         "type": "github"
       },
       "original": {
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "noctalia-greeter",
         "rev": "3f4ba2cccd89792878338353f884d890b8d34c04",
         "type": "github"
@@ -678,13 +678,13 @@
       "locked": {
         "lastModified": 1795607433,
         "narHash": "sha256-NBpJu4ZSR0z23TDZ6lD9JHuDdrzm1Ziirg66//yG/Uk=",
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "strata",
         "rev": "c1863ae7b9e96c92bd1a6c6274019e7813fe64de",
         "type": "github"
       },
       "original": {
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "strata",
         "rev": "c1863ae7b9e96c92bd1a6c6274019e7813fe64de",
         "type": "github"
@@ -729,13 +729,13 @@
       "locked": {
         "lastModified": 1795473984,
         "narHash": "sha256-2yqi/J/Sp8J3LXUKU4uU8ypR34uinNNHKMVY+PWzitc=",
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "umbriel",
         "rev": "40cc240dbc511df6a6e65e5883f12d557f443ba8",
         "type": "github"
       },
       "original": {
-        "owner": "question44",
+        "owner": "jmmzon",
         "repo": "umbriel",
         "rev": "40cc240dbc511df6a6e65e5883f12d557f443ba8",
         "type": "github"
