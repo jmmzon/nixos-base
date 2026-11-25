@@ -23,7 +23,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     noctalia.url = "github:question44/noctalia/4193c82eeede969c9e918b788a2eb7f676e33f1e";
     noctalia-greeter = {
-      url = "github:question44/noctalia-greeter/6a1e9bb263ae214fa4c330939252feabecec0010";
+      url = "github:question44/noctalia-greeter/3f4ba2cccd89792878338353f884d890b8d34c04";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     umbriel.url = "github:question44/umbriel/40cc240dbc511df6a6e65e5883f12d557f443ba8";

@@ -24,14 +24,12 @@ let
         default = [ ];
       };
       config = {
-        services.displayManager.noctalia-greeter.package =
-          lib.mkIf (config.programs.noctalia.greeterPatches != [ ])
-            (
-              f.inputs.noctalia-greeter.packages.x86_64-linux.default.overrideAttrs (old: {
-                patches = (old.patches or [ ]) ++ config.programs.noctalia.greeterPatches;
-                buildInputs = (old.buildInputs or [ ]) ++ [ pkgs.libdrm ];
-              })
-            );
+        services.displayManager.noctalia-greeter.package = (
+          f.inputs.noctalia-greeter.packages.x86_64-linux.default.overrideAttrs (old: {
+            patches = (old.patches or [ ]) ++ config.programs.noctalia.greeterPatches;
+            buildInputs = (old.buildInputs or [ ]) ++ [ pkgs.libdrm ];
+          })
+        );
         virtualisation.memorySize = 2048;
         virtualisation.cores = 2;
         virtualisation.qemu.options = [

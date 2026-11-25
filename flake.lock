@@ -447,17 +447,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1795414446,
-        "narHash": "sha256-ZgNGxWmjRZrQ0y4oAcJ/H7I9l24R8czOsDf/Ngbv5+Y=",
+        "lastModified": 1795599355,
+        "narHash": "sha256-ZaXLYckT4J9vCQQb+LdnJ2TfDuur5V5/sNo6EVX+ly0=",
         "owner": "question44",
         "repo": "noctalia-greeter",
-        "rev": "6a1e9bb263ae214fa4c330939252feabecec0010",
+        "rev": "3f4ba2cccd89792878338353f884d890b8d34c04",
         "type": "github"
       },
       "original": {
         "owner": "question44",
         "repo": "noctalia-greeter",
-        "rev": "6a1e9bb263ae214fa4c330939252feabecec0010",
+        "rev": "3f4ba2cccd89792878338353f884d890b8d34c04",
         "type": "github"
       }
     },
