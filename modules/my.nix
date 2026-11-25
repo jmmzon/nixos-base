@@ -356,6 +356,16 @@
           };
         };
 
+        bitwarden.email = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          example = "name@example.com";
+          description = ''
+            Bitwarden account email. When set, the user gets rbw (unlocked
+            through a Qt pinentry) and Vicinae's Bitwarden extension.
+          '';
+        };
+
         spotify.desktopApp.enable = lib.mkEnableOption ''
           the official Spotify desktop app, themed by Noctalia through Spicetify
           (Spotifast is installed either way)

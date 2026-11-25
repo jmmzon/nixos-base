@@ -879,6 +879,39 @@ config.my.user.name
 
 
 
+## my\.bitwarden\.email
+
+
+
+Bitwarden account email\. When set, the user gets rbw (unlocked
+through a Qt pinentry) and Vicinae’s Bitwarden extension\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"name@example.com"
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
 ## my\.bootTiming\.enable
 
 
@@ -2770,8 +2803,6 @@ true
 
 ## my\.shellTasks\.enable
 
-
-
 Whether to enable a task board under the fish welcome banner, read live from
 ` <flakePath>/tasks ` with ` my.taskBoard.script --root <flakePath> list --json `
 (hidden while that directory is missing), and the task script on PATH
@@ -2839,6 +2870,8 @@ list of (one of “progress”, “todo”, “attention”)
 
 
 ## my\.shellTasks\.rows
+
+
 
 Lines per board column, including the ` +k more ` line when tasks are cut\.
 

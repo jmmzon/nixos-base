@@ -48,6 +48,12 @@
       url = "github:vicinaehq/vicinae/23fec1e1da14c422fba01db5c286589b6e946d06";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Vicinae's extension store (source only); the Bitwarden extension is
+    # built from it in modules/vicinae.nix.
+    vicinae-extensions = {
+      url = "github:vicinaehq/extensions/fb1c595374f5190fe36591044a8092660cd793f5";
+      flake = false;
+    };
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";

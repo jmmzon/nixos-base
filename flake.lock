@@ -601,6 +601,7 @@
         "strata": "strata",
         "umbriel": "umbriel",
         "vicinae": "vicinae",
+        "vicinae-extensions": "vicinae-extensions",
         "zen-browser": "zen-browser"
       }
     },
@@ -762,6 +763,23 @@
         "owner": "vicinaehq",
         "repo": "vicinae",
         "rev": "23fec1e1da14c422fba01db5c286589b6e946d06",
+        "type": "github"
+      }
+    },
+    "vicinae-extensions": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791577991,
+        "narHash": "sha256-y/xsDvzvcIZdZlA0HmGhSF0cX3C6Oxt3Gf2EKXjwM+0=",
+        "owner": "vicinaehq",
+        "repo": "extensions",
+        "rev": "fb1c595374f5190fe36591044a8092660cd793f5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vicinaehq",
+        "repo": "extensions",
+        "rev": "fb1c595374f5190fe36591044a8092660cd793f5",
         "type": "github"
       }
     },
