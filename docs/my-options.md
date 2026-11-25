@@ -879,6 +879,40 @@ config.my.user.name
 
 
 
+## my\.bootTiming\.enable
+
+
+
+Whether to enable a per-boot record of firmware (ACPI FPDT) and systemd startup timings in
+/var/lib/boot-timing, read with ` boot-timing `
+\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
 ## my\.controlDaemon\.enable
 
 
@@ -2806,8 +2840,6 @@ list of (one of “progress”, “todo”, “attention”)
 
 ## my\.shellTasks\.rows
 
-
-
 Lines per board column, including the ` +k more ` line when tasks are cut\.
 
 
@@ -2829,6 +2861,8 @@ positive integer, meaning >0
 
 
 ## my\.spotify\.desktopApp\.enable
+
+
 
 Whether to enable the official Spotify desktop app, themed by Noctalia through Spicetify
 (Spotifast is installed either way)

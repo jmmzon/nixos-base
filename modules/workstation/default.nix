@@ -16,6 +16,7 @@ in
       packages
       my
       ambilight
+      boot-timing
       erebor-modes
       headphone-eq
       mac-approval

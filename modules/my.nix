@@ -377,6 +377,11 @@
           };
         };
 
+        bootTiming.enable = lib.mkEnableOption ''
+          a per-boot record of firmware (ACPI FPDT) and systemd startup timings in
+          /var/lib/boot-timing, read with `boot-timing`
+        '';
+
         headphoneEq = {
           enable = lib.mkEnableOption "a parametric headphone EQ sink (PipeWire filter-chain), switched on with `headphone-eq on`";
           name = lib.mkOption {
