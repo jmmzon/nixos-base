@@ -950,7 +950,8 @@ true
 
 Whether to enable phone calls through a paired phone: this machine is the phone’s
 hands-free kit (HFP), call audio plays on the default speakers and
-microphone, and ` call NUMBER|answer|hangup|status ` (also the
+microphone, and ` call NUMBER|NAME|answer|hangup|status ` (NAME from the
+contacts KDE Connect syncs; also the
 handler for tel: links) drives the phone
 \.
 

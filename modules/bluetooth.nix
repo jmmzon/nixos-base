@@ -20,12 +20,16 @@
     }:
     let
       cfg = config.my.bluetooth;
+      contacts = pkgs.writers.writePython3Bin "call-contacts" {
+        flakeIgnore = [ "E501" ];
+      } (builtins.readFile ./_bluetooth/call-contacts.py);
       call = pkgs.writeShellApplication {
         name = "call";
         runtimeInputs = [
           pkgs.systemd # busctl
           pkgs.jq
           pkgs.libnotify
+          contacts
         ];
         text = ''
           svc=org.pipewire.Telephony
@@ -48,6 +52,9 @@
           usage() {
             cat <<'EOF'
           usage: call NUMBER        dial NUMBER (or a tel: URI) on the phone
+                 call NAME [N]      dial a contact synced by KDE Connect; with
+                                    several matches, list them (N picks one)
+                 call contacts [TEXT]  list contacts and their numbers
                  call answer        answer the incoming call
                  call hangup        end every call
                  call tones DIGITS  send DTMF tones in the active call
@@ -95,8 +102,38 @@
             n=''${n//%2b/+}
             n=''${n//%20/}
             n=$(printf '%s' "$n" | tr -d ' ()./-')
-            [[ $n =~ ^\+?[0-9*#]+$ ]] || die "not a phone number: $1"
+            [[ $n =~ ^\+?[0-9*#]+$ ]] || return 1
             echo "$n"
+          }
+
+          dial() {
+            local ag
+            ag=$(gateway)
+            ag_call "$ag" Dial s "$1" || die "the phone refused to dial $1"
+            say "calling ''${2:+$2, }$1"
+          }
+
+          # call NAME [N]: one contact with one number dials, more are listed.
+          dial_contact() {
+            local pick="" matches count
+            if [ $# -gt 1 ] && [[ ''${!#} =~ ^[1-9][0-9]?$ ]]; then
+              pick=''${!#}
+              set -- "''${@:1:$#-1}"
+            fi
+            matches=$(call-contacts "$@")
+            count=$(printf '%s' "$matches" | grep -c . || true)
+            [ "$count" -gt 0 ] || die "no contact matches: $*"
+            if [ -z "$pick" ] && [ "$count" -gt 1 ]; then
+              printf '%s\n' "$matches" |
+                awk -F '\t' '{ printf "%2d  %s (%s) %s\n", NR, $1, $2, $3 }' >&2
+              die "$count numbers match \"$*\": call $* N"
+            fi
+            [ "''${pick:-1}" -le "$count" ] || die "only $count numbers match \"$*\""
+            local line name number
+            line=$(printf '%s\n' "$matches" | sed -n "''${pick:-1}p")
+            name=''${line%%$'\t'*}
+            number=$(normalize "''${line##*$'\t'}") || die "$name has an unusable number"
+            dial "$number" "$name"
           }
 
           case "''${1:-}" in
@@ -133,11 +170,16 @@
               ag=$(gateway)
               ag_call "$ag" SendTones s "$2"
               ;;
+            contacts)
+              shift
+              call-contacts "$@" | awk -F '\t' '{ printf "%s (%s) %s\n", $1, $2, $3 }'
+              ;;
             *)
-              number=$(normalize "$1")
-              ag=$(gateway)
-              ag_call "$ag" Dial s "$number" || die "the phone refused to dial $number"
-              say "calling $number"
+              if number=$(normalize "$*"); then
+                dial "$number"
+              else
+                dial_contact "$@"
+              fi
               ;;
           esac
         '';
