@@ -17,6 +17,7 @@ in
       my
       ambilight
       boot-timing
+      bluetooth
       erebor-modes
       headphone-eq
       mac-approval

@@ -58,6 +58,7 @@ in
         vicinae
         xremap
         spotify
+        bluetooth
         steam-theme
         zen
         theme-opacity

@@ -912,6 +912,74 @@ null
 
 
 
+## my\.bluetooth\.enable
+
+
+
+Whether to enable Bluetooth (BlueZ), with PipeWire audio for paired devices\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
+## my\.bluetooth\.phoneCalls\.enable
+
+
+
+Whether to enable phone calls through a paired phone: this machine is the phone’s
+hands-free kit (HFP), call audio plays on the default speakers and
+microphone, and ` call NUMBER|answer|hangup|status ` (also the
+handler for tel: links) drives the phone
+\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/my\.nix](../modules/my.nix)
+
+
+
 ## my\.bootTiming\.enable
 
 
@@ -2770,8 +2838,6 @@ true
 
 ## my\.shaderWallpaper\.kdeLibrary
 
-
-
 Whether to enable KDE Shader Wallpaper’s shader library (pinned) in share/noctalia/shaders/kde, for
 the shader wallpaper and its picker plugin\.
 
@@ -2802,6 +2868,8 @@ true
 
 
 ## my\.shellTasks\.enable
+
+
 
 Whether to enable a task board under the fish welcome banner, read live from
 ` <flakePath>/tasks ` with ` my.taskBoard.script --root <flakePath> list --json `

@@ -387,6 +387,16 @@
           };
         };
 
+        bluetooth = {
+          enable = lib.mkEnableOption "Bluetooth (BlueZ), with PipeWire audio for paired devices";
+          phoneCalls.enable = lib.mkEnableOption ''
+            phone calls through a paired phone: this machine is the phone's
+            hands-free kit (HFP), call audio plays on the default speakers and
+            microphone, and `call NUMBER|answer|hangup|status` (also the
+            handler for tel: links) drives the phone
+          '';
+        };
+
         bootTiming.enable = lib.mkEnableOption ''
           a per-boot record of firmware (ACPI FPDT) and systemd startup timings in
           /var/lib/boot-timing, read with `boot-timing`
@@ -667,6 +677,10 @@
         {
           assertion = cfg.network.ovhDns.enable -> cfg.secretsFile != null;
           message = "my.network.ovhDns.enable needs my.secretsFile: the host's sops file with the ovh_* secrets.";
+        }
+        {
+          assertion = cfg.bluetooth.phoneCalls.enable -> cfg.bluetooth.enable;
+          message = "my.bluetooth.phoneCalls.enable needs my.bluetooth.enable.";
         }
         {
           assertion = cfg.headphoneEq.enable -> cfg.headphoneEq.target != null;
