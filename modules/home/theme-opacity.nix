@@ -19,6 +19,11 @@
 #   kdeglobals for Qt/KDE) and tells running apps to reload their icons;
 # - on a mode change, remembers Noctalia's surface opacities and Darkly's (Qt
 #   apps: Dolphin...) as they were in the old mode and restores the new mode's.
+#   Noctalia's follow the mode its own surfaces run in ([theme].shell_mode:
+#   "dark" or "light" pins it, "follow" and "auto" are taken as the apps'
+#   mode), remembered in $state/shell-mode, so with the shell pinned dark a
+#   light/dark switch leaves the bar, OSD and notifications alone. Darkly
+#   follows the apps' mode.
 #   A mode never seen before gets the old mode's values matched to it:
 #   Noctalia's along home/appearance.nix's seeThrough curve (capsules by what
 #   shows through capsule and bar together), Darkly's scaled by
@@ -227,6 +232,9 @@
           previous="''${NOCTALIA_THEME_MODE_PREVIOUS:-}"
 
           mkdir -p "$state"
+          # The mode Noctalia's surfaces ran in at the last run (before
+          # shell-mode existed: the apps' mode then); read before $state/mode moves.
+          shell_previous="$(cat "$state/shell-mode" 2>/dev/null || cat "$state/mode" 2>/dev/null || true)"
           reduce=false
           [ -e "$state/reduce" ] && reduce=true
           sel="$mode"
@@ -287,6 +295,9 @@
           fi
 
           # ── Noctalia surfaces and Darkly ─────────────────────────────────
+          # The mode Noctalia's own surfaces run in now ([theme].shell_mode).
+          shell_cfg="$(noctalia msg config-get theme.shell_mode 2>/dev/null | tr -d "'\"" || true)"
+          case "$shell_cfg" in dark | light) shell="$shell_cfg" ;; *) shell="$mode" ;; esac
           # While reduce transparency is applied, the live values are raised;
           # the real ("base") values live in reduce-base / reduce-base-darkly.
           applied=false
@@ -397,29 +408,35 @@
             dbus-send --session --type=signal /DarklyStyle org.kde.Darkly.Style.reparseConfiguration || true
           }
 
-          # A theme mode change: remember the old mode's values, load the new mode's.
-          case "$previous" in dark | light) changed_mode=true ;; *) changed_mode=false ;; esac
-          [ "$previous" != "$mode" ] || changed_mode=false
-          if $changed_mode; then
-            if [ "$mode" = light ]; then factor="$ratio"; else factor="$(awk -v r="$ratio" 'BEGIN { print 1 / r }')"; fi
-
-            saved="$state/noctalia-$previous"
+          # The shell's mode changed: remember Noctalia's values for the old one,
+          # load the new one's.
+          case "$shell_previous" in dark | light) changed_shell=true ;; *) changed_shell=false ;; esac
+          [ "$shell_previous" != "$shell" ] || changed_shell=false
+          if $changed_shell; then
+            saved="$state/noctalia-$shell_previous"
             : > "$saved.tmp"
             for k in "''${noctalia_keys[@]}"; do
               v="$(base_value "$k" || true)"
               [ -n "$v" ] && printf '%s %s\n' "$k" "$v" >> "$saved.tmp"
             done
             mv "$saved.tmp" "$saved"
-            if [ -s "$state/noctalia-$mode" ]; then
-              awk '{ x = $2; if (x > 1) x = 1; printf "%s %.3f\n", $1, x }' "$state/noctalia-$mode" > "$state/noctalia-next.tmp"
+            if [ -s "$state/noctalia-$shell" ]; then
+              awk '{ x = $2; if (x > 1) x = 1; printf "%s %.3f\n", $1, x }' "$state/noctalia-$shell" > "$state/noctalia-next.tmp"
             else
-              noctalia_derive "$mode" "$saved" > "$state/noctalia-next.tmp"
+              noctalia_derive "$shell" "$saved" > "$state/noctalia-next.tmp"
             fi
             while read -r k v; do
               set_base "$k" "$v"
             done < "$state/noctalia-next.tmp"
             rm -f "$state/noctalia-next.tmp"
+          fi
+          printf '%s\n' "$shell" > "$state/shell-mode"
 
+          # The apps' mode changed: the same for Darkly.
+          case "$previous" in dark | light) changed_mode=true ;; *) changed_mode=false ;; esac
+          [ "$previous" != "$mode" ] || changed_mode=false
+          if $changed_mode; then
+            if [ "$mode" = light ]; then factor="$ratio"; else factor="$(awk -v r="$ratio" 'BEGIN { print 1 / r }')"; fi
             if [ -f "$darklyrc" ]; then
               saved="$state/darkly-$previous"
               darkly_read > "$saved"
@@ -452,7 +469,8 @@
 
           if $reset; then
             rm -f "$state/noctalia-dark" "$state/noctalia-light" "$state/reduce-base" "$state/reduce-base-panel"
-            if [ "$mode" = light ]; then
+            printf '%s\n' "$shell" > "$state/shell-mode"
+            if [ "$shell" = light ]; then
               : > "$state/noctalia-next.tmp"
               for k in "''${noctalia_keys[@]}"; do
                 v="$(live_value "$k" || true)"
