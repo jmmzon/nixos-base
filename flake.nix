@@ -15,7 +15,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     strata = {
-      url = "github:jmmzon/strata/c1863ae7b9e96c92bd1a6c6274019e7813fe64de";
+      url = "github:jmmzon/strata/7899f338184f959792b0c85fb30d96ac8219b7ce";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     monstar.url = "github:rockorager/monstar/860f55d7000692e98a37b814d0eebc3575fede73";

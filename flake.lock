@@ -677,17 +677,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1795607433,
-        "narHash": "sha256-NBpJu4ZSR0z23TDZ6lD9JHuDdrzm1Ziirg66//yG/Uk=",
+        "lastModified": 1795619392,
+        "narHash": "sha256-8ICH66sraiVVj0lJRMG0tnn+5K0s/9BR1Mv9BtY4kWA=",
         "owner": "jmmzon",
         "repo": "strata",
-        "rev": "c1863ae7b9e96c92bd1a6c6274019e7813fe64de",
+        "rev": "7899f338184f959792b0c85fb30d96ac8219b7ce",
         "type": "github"
       },
       "original": {
         "owner": "jmmzon",
         "repo": "strata",
-        "rev": "c1863ae7b9e96c92bd1a6c6274019e7813fe64de",
+        "rev": "7899f338184f959792b0c85fb30d96ac8219b7ce",
         "type": "github"
       }
     },
