@@ -391,19 +391,6 @@ class Command:
         run(*self.p["restore"])
 
 
-class Report:
-    """Done elsewhere (a system unit); only read for the state file."""
-
-    def __init__(self, p):
-        self.p = p
-
-    def read(self):
-        try:
-            return run(*self.p["read"])
-        except (RuntimeError, OSError) as e:
-            raise Skip(str(e))
-
-
 HANDLERS = {
     "noctalia-setting": NoctaliaSetting,
     "noctalia-list-remove": NoctaliaListRemove,
@@ -412,7 +399,6 @@ HANDLERS = {
     "ddc-cap": DdcCap,
     "plugin-pause": PluginPause,
     "command": Command,
-    "report": Report,
 }
 
 
@@ -647,9 +633,7 @@ def sync(requested_add=(), override_add=(), quiet=False):
         entry = {"label": item["label"], "glyph": item.get("glyph", ""),
                  "mode": mode["id"], "summary": item.get("summary", "")}
         try:
-            if item["handler"] == "report":
-                entry.update(status="applied", value=h.read())
-            elif iid in saved:
+            if iid in saved:
                 current = h.read()
                 if changed(h, saved[iid]["applied"], current):
                     entry["status"] = "changed"  # by hand; restore leaves it

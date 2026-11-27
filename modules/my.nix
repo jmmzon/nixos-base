@@ -585,8 +585,7 @@
           enable = lib.mkEnableOption ''
             desktop modes (`erebor-modes`, SYS-122): while the power-saver profile is
             on, liquid glass, animated wallpapers, the audio visualizer, the ambilight
-            and display brightness (and optionally the GPU power limit) are turned
-            down, and put back afterwards'';
+            and display brightness are turned down, and put back afterwards'';
           reduceTransparency = {
             opacity = lib.mkOption {
               type = lib.types.numbers.between 0 1;
@@ -619,12 +618,6 @@
               type = lib.types.ints.between 0 255;
               default = 64;
               description = "WLED brightness (0-255) while power-saver is on; never turns the strips on.";
-            };
-            gpuPowerLimit = lib.mkOption {
-              type = lib.types.nullOr lib.types.ints.positive;
-              default = null;
-              example = 200;
-              description = "NVIDIA power limit in watts while power-saver is on (a root unit); null leaves it.";
             };
           };
         };

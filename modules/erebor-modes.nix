@@ -7,8 +7,7 @@
 #   notification and the UI surfaces read one list of items. Noctalia's
 #   `power_profile_changed` hook runs `erebor-modes-hook`; its `started` hook
 #   runs `erebor-session-started` (theme opacity, then the modes).
-# - NixOS: the NVIDIA power limit follows the profile from a root unit
-#   (nvidia-smi needs root), when my.modes.powerSaver.gpuPowerLimit is set.
+# - NixOS: the desktop control daemon's `modes` feature.
 #
 # State for the surfaces (Noctalia plugins, glass tuner, dashboard):
 # ~/.local/state/erebor-modes/state.json (`erebor-modes status --json`).
@@ -139,17 +138,6 @@
             };
           }
         ]
-        ++ lib.optional (ps.gpuPowerLimit != null) {
-          id = "gpu";
-          label = "GPU power limit ${toString ps.gpuPowerLimit} W";
-          glyph = "cpu";
-          handler = "report";
-          params.read = [
-            "nvidia-smi"
-            "--query-gpu=power.limit"
-            "--format=csv,noheader"
-          ];
-        }
         # Offered, not applied: the notification has a button for it.
         ++ [
           {
@@ -260,8 +248,7 @@
           systemd
         ];
         text = ''
-          # Noctalia, Umbriel and the user's helpers, as in a hook's environment;
-          # nvidia-smi from the system.
+          # Noctalia, Umbriel and the user's helpers, as in a hook's environment.
           export PATH="$PATH:/etc/profiles/per-user/$USER/bin:/run/current-system/sw/bin"
           export EREBOR_MODES_MANIFEST=${manifest}
           export EREBOR_MODES_STATE_DIR=${lib.escapeShellArg stateDir}
@@ -310,8 +297,6 @@
       ...
     }:
     let
-      limit = config.my.modes.powerSaver.gpuPowerLimit;
-      nvidia = lib.elem "nvidia" config.services.xserver.videoDrivers;
       # The desktop control daemon's `modes` feature (get-modes, set-mode,
       # mode-changed; erebor-modes/desktopd/modes.py), tools at store paths.
       desktopdFeature = pkgs.runCommand "erebor-modes-desktopd" { } ''
@@ -321,46 +306,5 @@
           --replace-fail @powerprofilesctl@ ${lib.getExe' pkgs.power-profiles-daemon "powerprofilesctl"}
       '';
     in
-    lib.mkIf config.my.modes.enable (
-      lib.mkMerge [
-        { my.desktopd.featureDirs = [ desktopdFeature ]; }
-        (lib.mkIf (limit != null && nvidia) {
-          # The power limit is reset by the driver on boot, so nothing to undo here.
-          systemd.services.erebor-gpu-power-limit = {
-            description = "NVIDIA power limit follows the power profile (erebor-modes)";
-            wantedBy = [ "multi-user.target" ];
-            after = [ "power-profiles-daemon.service" ];
-            wants = [ "power-profiles-daemon.service" ];
-            path = [
-              config.hardware.nvidia.package.bin
-              pkgs.power-profiles-daemon
-              pkgs.glib
-              pkgs.gnugrep
-            ];
-            script = ''
-              apply() {
-                if [ "$(powerprofilesctl get)" = power-saver ]; then
-                  want=${toString limit}
-                else
-                  want=$(nvidia-smi --query-gpu=power.default_limit --format=csv,noheader,nounits | head -n1)
-                fi
-                want=''${want%.*}
-                have=$(nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits | head -n1)
-                [ "''${have%.*}" = "$want" ] || nvidia-smi -pl "$want"
-              }
-              apply
-              gdbus monitor --system --dest org.freedesktop.UPower.PowerProfiles \
-                --object-path /org/freedesktop/UPower/PowerProfiles |
-                while read -r line; do
-                  case "$line" in *ActiveProfile*) apply ;; esac
-                done
-            '';
-            serviceConfig = {
-              Restart = "always";
-              RestartSec = 5;
-            };
-          };
-        })
-      ]
-    );
+    lib.mkIf config.my.modes.enable { my.desktopd.featureDirs = [ desktopdFeature ]; };
 }

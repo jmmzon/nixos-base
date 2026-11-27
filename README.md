@@ -30,8 +30,8 @@ The desktop:
 - A Plymouth → greeter handoff without a black gap, and kmscon on the text
   consoles.
 - Desktop modes: power-saver (dims the screen over DDC, lowers the ambient
-  light and GPU power limit) and reduce-transparency, plus app opacity that
-  follows Noctalia's light/dark mode.
+  light) and reduce-transparency, plus app opacity that follows Noctalia's
+  light/dark mode.
 - Apps and theming: the Vicinae launcher, Ghostty, the Zen and Helium
   (ungoogled Chromium) browsers, Zed, Neovim (LazyVim), Fish, the Darkly Qt
   style, the Strata file manager, Steam with the Millennium theme, Spotify

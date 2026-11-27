@@ -2053,8 +2053,7 @@ attribute set of attribute set of string
 
 Whether to enable desktop modes (` erebor-modes `, SYS-122): while the power-saver profile is
 on, liquid glass, animated wallpapers, the audio visualizer, the ambilight
-and display brightness (and optionally the GPU power limit) are turned
-down, and put back afterwards\.
+and display brightness are turned down, and put back afterwards\.
 
 
 
@@ -2157,38 +2156,6 @@ list of string
 [
   "DP-1"
 ]
-```
-
-*Declared by:*
- - [modules/my\.nix](../modules/my.nix)
-
-
-
-## my\.modes\.powerSaver\.gpuPowerLimit
-
-
-
-NVIDIA power limit in watts while power-saver is on (a root unit); null leaves it\.
-
-
-
-*Type:*
-null or (positive integer, meaning >0)
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-
-
-*Example:*
-
-```nix
-200
 ```
 
 *Declared by:*
@@ -2847,6 +2814,8 @@ null
 
 ## my\.shaderWallpaper\.enable
 
+
+
 Whether to enable the live ` shader: ` wallpaper in Noctalia (Shadertoy-style GLSL shaders, pause
 behind windows, the noctalia-shader-thumbnail tool)\. Needs my\.sequoiaWallpaper,
 whose patch it is stacked on\.
@@ -2878,8 +2847,6 @@ true
 
 
 ## my\.shaderWallpaper\.kdeLibrary
-
-
 
 Whether to enable KDE Shader Wallpaper’s shader library (pinned) in share/noctalia/shaders/kde, for
 the shader wallpaper and its picker plugin\.
