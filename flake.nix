@@ -11,7 +11,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     moonshine = {
-      url = "github:hgaiser/moonshine/ec162f96dfa4197c4dc2d71bb631aaa97e00167a";
+      url = "github:hgaiser/moonshine/f4b0ce559d29278062cebd65d171c74a7912f4a8";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     strata = {
