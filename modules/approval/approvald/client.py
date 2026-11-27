@@ -124,28 +124,113 @@ def cli_main(argv):
     return 0 if r.get("result") == "enrolled" else 1
 
 
+def read_pin(prompt="Security key PIN: "):
+    """Read the PIN from the terminal without echo. Refuses getpass's fallback
+    to an echoing stdin, so the PIN is never shown or read from a pipe."""
+    import getpass
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", getpass.GetPassWarning)
+        return getpass.getpass(prompt)
+
+
+def key_error(e, client_pin=None):
+    """A one-line message for a CtapError (never the PIN)."""
+    from fido2.ctap import CtapError
+
+    err = CtapError.ERR
+    code = e.code
+    if code == err.PIN_INVALID:
+        left = None
+        if client_pin is not None:
+            try:
+                left = client_pin.get_pin_retries()[0]
+            except Exception:
+                pass
+        return "wrong PIN" + (f" ({left} attempts left before the PIN is blocked)" if left is not None else "")
+    if code == err.PIN_AUTH_BLOCKED:
+        return "too many wrong PINs in a row: unplug the key, plug it back in and try again"
+    if code == err.PIN_BLOCKED:
+        return "the key's PIN is blocked: only a FIDO reset (which deletes its credentials) unblocks it"
+    if code in (err.PIN_POLICY_VIOLATION, err.PIN_NOT_SET):
+        return "the key refused the PIN (not set, or does not meet its PIN policy)"
+    if code in (err.USER_ACTION_TIMEOUT, err.ACTION_TIMEOUT, err.TIMEOUT):
+        return "the key was not touched in time; run the command again and touch it when it blinks"
+    if code in (err.OPERATION_DENIED, err.KEEPALIVE_CANCEL):
+        return "cancelled on the key"
+    if code in (err.PUAT_REQUIRED, err.UV_BLOCKED, err.UV_INVALID):
+        return "the key needs user verification but has no PIN set; set a FIDO2 PIN on it first"
+    return f"security key error: {code.name if isinstance(code, err) else hex(code)}"
+
+
 def enroll_yubikey():
     """Make a credential on the plugged-in key (touch it) and hand the public
-    key to the daemon. Runs as root, talking to the key directly."""
+    key to the daemon. Runs as root, talking to the key directly. A key with a
+    FIDO2 PIN needs a PIN token for makeCredential; the PIN is read from the
+    terminal and never echoed, logged or passed on. Approvals later need only a
+    touch (getAssertion with up, no PIN)."""
     import base64
     import secrets
 
     from fido2 import cbor
+    from fido2.ctap import CtapError
     from fido2.ctap2 import Ctap2
+    from fido2.ctap2.pin import ClientPin
     from fido2.hid import CtapHidDevice
 
     rp_id = os.environ.get("APPROVAL_YUBIKEY_RP_ID", "approvald")
-    devs = list(CtapHidDevice.list_devices())
+    try:
+        devs = list(CtapHidDevice.list_devices())
+    except OSError:
+        devs = []
     if not devs:
         return {"error": "no security key plugged in"}
-    print("Touch the security key…", flush=True)
-    att = Ctap2(devs[0]).make_credential(
-        secrets.token_bytes(32),
-        {"id": rp_id, "name": "approval"},
-        {"id": secrets.token_bytes(16), "name": "approval"},
-        [{"type": "public-key", "alg": -7}, {"type": "public-key", "alg": -8}],
-        options={"rk": False},
-    )
+    dev = devs[0]
+    if len(devs) > 1:
+        print(f"{len(devs)} security keys found; using {dev.product_name or 'the first'}", flush=True)
+
+    client_pin = None
+    try:
+        ctap = Ctap2(dev)
+        cdh = secrets.token_bytes(32)
+        auth = {}
+        if ctap.info.options.get("clientPin"):
+            try:
+                pin = read_pin()
+            except (EOFError, KeyboardInterrupt):
+                return {"error": "cancelled"}
+            except Warning:
+                return {"error": "the key has a PIN; run this in a terminal to enter it"}
+            if not pin:
+                return {"error": "cancelled (empty PIN)"}
+            try:
+                client_pin = ClientPin(ctap)
+            except ValueError:
+                return {"error": "the key supports no PIN protocol this tool knows"}
+            try:
+                token = client_pin.get_pin_token(pin, ClientPin.PERMISSION.MAKE_CREDENTIAL, rp_id)
+            finally:
+                del pin
+            auth = {
+                "pin_uv_param": client_pin.protocol.authenticate(token, cdh),
+                "pin_uv_protocol": client_pin.protocol.VERSION,
+            }
+        print("Touch the security key…", flush=True)
+        att = ctap.make_credential(
+            cdh,
+            {"id": rp_id, "name": "approval"},
+            {"id": secrets.token_bytes(16), "name": "approval"},
+            [{"type": "public-key", "alg": -7}, {"type": "public-key", "alg": -8}],
+            options={"rk": False},
+            **auth,
+        )
+    except CtapError as e:
+        return {"error": key_error(e, client_pin)}
+    except KeyboardInterrupt:
+        return {"error": "cancelled"}
+    except OSError as e:
+        return {"error": f"lost the security key ({type(e).__name__})"}
     cd = att.auth_data.credential_data
 
     def enc(b):
