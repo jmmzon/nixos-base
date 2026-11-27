@@ -62,17 +62,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1795523022,
-        "narHash": "sha256-6qgsfFQVLlMDAd0smJJxt4GAxWtxANv7dS0d74bNmh8=",
+        "lastModified": 1795773039,
+        "narHash": "sha256-1r/RiBD1BWoxMmNKZynyxorRw8as8QJFgwBbrx59UBA=",
         "owner": "jmmzon",
         "repo": "erebor-dashboard",
-        "rev": "ce53307dbc189b6a7eca7130dd4ff4c795c1b694",
+        "rev": "c03fbd9fc35f34d5d54b9482f216a96ea5ec29a6",
         "type": "github"
       },
       "original": {
         "owner": "jmmzon",
         "repo": "erebor-dashboard",
-        "rev": "ce53307dbc189b6a7eca7130dd4ff4c795c1b694",
+        "rev": "c03fbd9fc35f34d5d54b9482f216a96ea5ec29a6",
         "type": "github"
       }
     },
