@@ -80,7 +80,7 @@
             handle /api/control* {
               @trusted remote_ip private_ranges 100.64.0.0/10 fd7a:115c:a1e0::/48
               handle @trusted {
-                reverse_proxy 127.0.0.1:18090
+                reverse_proxy 127.0.0.1:${toString config.services.erebor-dashboard.control.port}
               }
               respond "Controls are available on the local network and tailnet only." 403
             }
