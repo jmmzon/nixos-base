@@ -32,6 +32,12 @@
                   openFirewall = true;
                   settings = {
                     name = "Erebor Moonshine";
+                    # The control panel (port 47990) has no password: any local
+                    # process, a streamed session's browser included, could pair a
+                    # device or add an application that runs a command as the user.
+                    # Its edits to config.toml cannot be saved here (the file is in
+                    # the store), and pairing works without it.
+                    ui.enabled = false;
                     application = [
                       {
                         title = "Steam Big Picture";
